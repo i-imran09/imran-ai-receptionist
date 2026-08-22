@@ -1,95 +1,66 @@
 package com.imran.receptionist
 
 import android.os.Bundle
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.imran.receptionist.databinding.ActivityMainBinding
-import com.imran.receptionist.status.StatusManager
-import com.imran.receptionist.history.HistoryManager
+import com.imran.receptionist.status.StatusViewModel
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
-
     private lateinit var binding: ActivityMainBinding
-    private lateinit var statusManager: StatusManager
-    private lateinit var historyManager: HistoryManager
+    private val statusViewModel: StatusViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        statusManager = StatusManager(this)
-        historyManager = HistoryManager(this)
-
-        setupUI()
+        setupStatusButtons()
         observeStatus()
-        loadHistory()
     }
 
-    private fun setupUI() {
-        binding.buttonWork.setOnClickListener {
-            setStatus("Work")
+    private fun setupStatusButtons() {
+        binding.btnWork.setOnClickListener {
+            lifecycleScope.launch {
+                statusViewModel.setStatus("Work")
+            }
         }
-        binding.buttonSleep.setOnClickListener {
-            setStatus("Sleep")
-        }
-        binding.buttonOuting.setOnClickListener {
-            setStatus("Outing")
-        }
-    }
 
-    private fun setStatus(status: String) {
-        lifecycleScope.launch {
-            try {
-                statusManager.setStatus(status)
-                updateStatusDisplay(status)
-            } catch (e: Exception) {
-                showError("Error setting status: ${e.message}")
+        binding.btnSleep.setOnClickListener {
+            lifecycleScope.launch {
+                statusViewModel.setStatus("Sleep")
+            }
+        }
+
+        binding.btnOuting.setOnClickListener {
+            lifecycleScope.launch {
+                statusViewModel.setStatus("Outing")
             }
         }
     }
 
     private fun observeStatus() {
         lifecycleScope.launch {
-            statusManager.currentStatus.collect { status ->
-                if (status != null) {
-                    updateStatusDisplay(status)
-                }
+            statusViewModel.currentStatus.collect { status ->
+                updateStatusUI(status)
             }
         }
     }
 
-    private fun updateStatusDisplay(status: String) {
-        binding.textCurrentStatus.text = "Current: $status"
-        val color = when (status) {
-            "Work" -> getColor(R.color.purple_500)
-            "Sleep" -> getColor(R.color.teal_200)
-            "Outing" -> getColor(R.color.orange_500)
-            else -> getColor(R.color.black)
-        }
-        binding.textCurrentStatus.setTextColor(color)
-    }
+    private fun updateStatusUI(status: String) {
+        // Reset all buttons
+        binding.btnWork.alpha = 0.5f
+        binding.btnSleep.alpha = 0.5f
+        binding.btnOuting.alpha = 0.5f
 
-    private fun loadHistory() {
-        lifecycleScope.launch {
-            try {
-                val history = historyManager.getRecentHistory(limit = 10)
-                if (history.isNotEmpty()) {
-                    val historyText = history.joinToString("\n") { item ->
-                        "${item.callerNumber} - ${item.timestamp} (${item.currentStatus})"
-                    }
-                    binding.textHistory.text = historyText
-                } else {
-                    binding.textHistory.text = getString(R.string.no_history)
-                }
-            } catch (e: Exception) {
-                binding.textHistory.text = "Error loading history: ${e.message}"
-            }
+        // Highlight current status
+        when (status) {
+            "Work" -> binding.btnWork.alpha = 1.0f
+            "Sleep" -> binding.btnSleep.alpha = 1.0f
+            "Outing" -> binding.btnOuting.alpha = 1.0f
         }
-    }
-
-    private fun showError(message: String) {
-        binding.textHistory.text = message
     }
 }
