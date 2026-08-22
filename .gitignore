@@ -1,0 +1,63 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Android build
+.gradle
+.gradle/
+build/
+*.apk
+*.aab
+.DS_Store
+*.jks
+*.keystore
+
+# Android Studio
+.idea/
+.idea_modules/
+*.iml
+*.iws
+*.ipr
+*.iml
+.navigation
+*.swp
+*~
+*.bak
+
+# Gradle
+.gradle
+gradle-app.setting
+!gradle/wrapper/gradle-wrapper.jar
+gradle-wrapper.properties
+
+# Node/Backend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp
+.pnp.js
+dist/
+build/
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
