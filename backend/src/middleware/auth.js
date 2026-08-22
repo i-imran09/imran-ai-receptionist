@@ -1,33 +1,69 @@
-// Simple development authentication middleware
-// In production, implement proper token validation, OAuth, or mutual TLS
+import crypto from 'crypto';
 
-function authenticateRequest(req, res, next) {
+// Authenticate Android app requests
+export function authenticateAndroid(req, res, next) {
   const authHeader = req.headers['authorization'];
-  const androidSecret = process.env.ANDROID_SECRET_KEY;
 
-  if (!androidSecret) {
-    console.warn('[Auth] ANDROID_SECRET_KEY not configured, allowing request (DEVELOPMENT ONLY)');
-    return next();
+  if (!authHeader) {
+    return res.status(401).json({ error: 'Missing authorization header' });
   }
 
-  // Expected format: "Bearer {secret}"
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({
-      error: 'Missing authorization token'
-    });
+  // Expected format: Bearer <token>
+  const parts = authHeader.split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer') {
+    return res.status(401).json({ error: 'Invalid authorization header format' });
   }
 
-  if (token !== androidSecret) {
-    return res.status(403).json({
-      error: 'Invalid authorization token'
-    });
+  const token = parts[1];
+
+  // Verify token (simple HMAC verification)
+  const expected = crypto
+    .createHmac('sha256', process.env.APP_SHARED_SECRET)
+    .update('android-app')
+    .digest('hex');
+
+  if (!crypto.timingSafeEqual(token, expected)) {
+    return res.status(401).json({ error: 'Invalid token' });
   }
 
+  console.log('✅ Android request authenticated');
   next();
 }
 
-module.exports = {
-  authenticateRequest
-};
+// Verify Meta webhook signature
+export function verifyMetaWebhook(req, res, next) {
+  const signature = req.headers['x-hub-signature-256'];
+
+  if (!signature) {
+    console.warn('⚠️ Missing webhook signature');
+    return res.status(403).json({ error: 'Missing signature' });
+  }
+
+  // Get raw body (must be configured in Express)
+  let body = '';
+  if (Buffer.isBuffer(req.body)) {
+    body = req.body.toString('utf-8');
+  } else {
+    body = JSON.stringify(req.body);
+  }
+
+  // Calculate expected signature
+  const expected = 'sha256=' + crypto
+    .createHmac('sha256', process.env.META_VERIFY_TOKEN)
+    .update(body)
+    .digest('hex');
+
+  // Verify signature (timing-safe comparison)
+  try {
+    if (!crypto.timingSafeEqual(signature, expected)) {
+      console.error('❌ Invalid webhook signature');
+      return res.status(403).json({ error: 'Invalid signature' });
+    }
+  } catch (err) {
+    console.error('❌ Signature verification failed:', err.message);
+    return res.status(403).json({ error: 'Signature verification failed' });
+  }
+
+  console.log('✅ Meta webhook signature verified');
+  next();
+}

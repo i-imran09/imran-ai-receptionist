@@ -1,47 +1,58 @@
-const express = require('express');
-const dotenv = require('dotenv');
-const callRoutes = require('./routes/callRoutes');
-const webhookRoutes = require('./routes/webhookRoutes');
-const errorHandler = require('./middleware/errorHandler');
+import express from 'express';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+import healthRouter from './routes/health.js';
+import callFollowupRouter from './routes/callFollowup.js';
+import webhookRouter from './routes/webhook.js';
+import errorHandler from './middleware/errorHandler.js';
+import { validateEnvironment } from './config/env.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Validate environment at startup
+try {
+  validateEnvironment();
+  console.log('✅ Environment validation passed');
+} catch (error) {
+  console.error('❌ Environment validation failed:', error.message);
+  process.exit(1);
+}
+
 // Middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
 });
 
 // Routes
-app.use('/api', callRoutes);
-app.use('/webhook', webhookRoutes);
+app.use('/health', healthRouter);
+app.use('/call-followup', callFollowupRouter);
+app.use('/webhook', webhookRouter);
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({
-    error: 'Endpoint not found',
-    path: req.path,
-    method: req.method
-  });
+  res.status(404).json({ error: 'Not found' });
 });
 
-// Error handler
+// Error handler (must be last)
 app.use(errorHandler);
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`[${new Date().toISOString()}] Imran AI Receptionist Backend started on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🚀 Imran AI Receptionist Backend running on port ${PORT}`);
+  console.log(`📍 Health check: http://localhost:${PORT}/health`);
 });
 
-module.exports = app;
+export default app;

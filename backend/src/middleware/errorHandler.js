@@ -1,23 +1,12 @@
-function errorHandler(err, req, res, next) {
-  console.error(`[${new Date().toISOString()}] Error:`, {
-    message: err.message,
-    stack: err.stack,
-    path: req.path,
-    method: req.method
-  });
+export default function errorHandler(err, req, res, next) {
+  console.error('❌ Error:', err.message);
 
-  // Never expose internal error details in production
-  const isDevelopment = process.env.NODE_ENV === 'development';
-  const errorResponse = {
-    error: isDevelopment ? err.message : 'Internal server error',
+  // Don't expose internal error details
+  const statusCode = err.statusCode || 500;
+  const message = statusCode === 500 ? 'Internal server error' : err.message;
+
+  res.status(statusCode).json({
+    error: message,
     timestamp: new Date().toISOString()
-  };
-
-  if (isDevelopment) {
-    errorResponse.stack = err.stack;
-  }
-
-  res.status(err.status || 500).json(errorResponse);
+  });
 }
-
-module.exports = errorHandler;

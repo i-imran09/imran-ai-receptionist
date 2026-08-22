@@ -1,94 +1,62 @@
-const storage = require('../storage/storage');
+import { generateTanglishResponse } from './groqService.js';
+import { sendTextMessage } from './whatsappService.js';
+import { getOrCreateConversation, storeMessage } from './contactEventService.js';
 
-const conversations = new Map();
+export async function processIncomingMessage(whatsappMessage) {
+  try {
+    const senderNumber = whatsappMessage.from;
+    const messageId = whatsappMessage.id;
+    let messageText = '';
 
-async function initializeConversation(data) {
-  const { callerNumber, currentStatus, callTimestamp } = data;
-
-  let conversation = conversations.get(callerNumber);
-
-  if (!conversation) {
-    conversation = {
-      id: `conv_${callerNumber}_${Date.now()}`,
-      callerNumber,
-      currentStatus,
-      callTimestamp,
-      messages: [],
-      repeatCount: 1,
-      previousCalls: [callTimestamp],
-      initialTemplateStatus: 'pending',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    conversations.set(callerNumber, conversation);
-    await storage.saveConversation(conversation);
-  } else {
-    // Increment repeat count
-    conversation.repeatCount += 1;
-    conversation.previousCalls.push(callTimestamp);
-    conversation.updatedAt = new Date().toISOString();
-    await storage.updateConversation(conversation);
-  }
-
-  return conversation;
-}
-
-async function getConversation(callerNumber) {
-  let conversation = conversations.get(callerNumber);
-
-  if (!conversation) {
-    conversation = await storage.loadConversation(callerNumber);
-    if (conversation) {
-      conversations.set(callerNumber, conversation);
+    // Extract message text based on type
+    if (whatsappMessage.type === 'text') {
+      messageText = whatsappMessage.text.body;
+    } else {
+      console.log(`Received non-text message type: ${whatsappMessage.type}`);
+      // For now, only handle text
+      return;
     }
+
+    console.log(`📝 Processing message from ${senderNumber}: "${messageText}"`);
+
+    // Get or create conversation
+    const conversation = await getOrCreateConversation(senderNumber);
+
+    // Store incoming message
+    await storeMessage(conversation.id, {
+      direction: 'incoming',
+      content: messageText,
+      whatsappMessageId: messageId
+    });
+
+    // Get conversation history for context
+    const history = conversation.messages || [];
+    const conversationMessages = history.slice(-5).map(msg => ({
+      role: msg.direction === 'incoming' ? 'user' : 'assistant',
+      content: msg.content
+    }));
+
+    // Generate AI response
+    const aiResponse = await generateTanglishResponse(
+      messageText,
+      conversation.lastStatus || 'Work',
+      conversationMessages
+    );
+
+    // Send response via WhatsApp
+    const sentMessage = await sendTextMessage(senderNumber, aiResponse.text);
+
+    // Store outgoing message
+    await storeMessage(conversation.id, {
+      direction: 'outgoing',
+      content: aiResponse.text,
+      whatsappMessageId: sentMessage.messageId,
+      groqGenerated: true
+    });
+
+    console.log(`✅ Response sent to ${senderNumber}`);
+  } catch (error) {
+    console.error('Error processing incoming message:', error);
+    // Don't throw - already acknowledged webhook
   }
-
-  return conversation;
 }
-
-async function updateConversation(conversationId, updates) {
-  for (const [key, conversation] of conversations.entries()) {
-    if (conversation.id === conversationId) {
-      Object.assign(conversation, updates, {
-        updatedAt: new Date().toISOString()
-      });
-      await storage.updateConversation(conversation);
-      return conversation;
-    }
-  }
-
-  throw new Error(`Conversation not found: ${conversationId}`);
-}
-
-async function addMessage(conversationId, messageData) {
-  for (const [key, conversation] of conversations.entries()) {
-    if (conversation.id === conversationId) {
-      const message = {
-        id: `msg_${Date.now()}`,
-        ...messageData,
-        timestamp: messageData.timestamp || new Date().toISOString()
-      };
-
-      conversation.messages.push(message);
-      conversation.updatedAt = new Date().toISOString();
-      await storage.updateConversation(conversation);
-      return message;
-    }
-  }
-
-  throw new Error(`Conversation not found: ${conversationId}`);
-}
-
-async function getAllConversations() {
-  const allConversations = Array.from(conversations.values());
-  return allConversations;
-}
-
-module.exports = {
-  initializeConversation,
-  getConversation,
-  updateConversation,
-  addMessage,
-  getAllConversations
-};
