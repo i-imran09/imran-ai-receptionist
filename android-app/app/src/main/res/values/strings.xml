@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Imran AI Receptionist</string>
+    <string name="status_work">Work</string>
+    <string name="status_sleep">Sleep</string>
+    <string name="status_outing">Outing</string>
+    <string name="button_work">Set Work</string>
+    <string name="button_sleep">Set Sleep</string>
+    <string name="button_outing">Set Outing</string>
+    <string name="current_status">Current Status</string>
+    <string name="history">Call History</string>
+    <string name="backend_status">Backend Status</string>
+    <string name="no_history">No calls yet</string>
+    <string name="error_setting_status">Error setting status</string>
+    <string name="connected">Connected</string>
+    <string name="disconnected">Disconnected</string>
+</resources>
