@@ -2,18 +2,23 @@ package com.imran.receptionist.call
 
 import android.content.Context
 import android.os.Build
-import android.telecom.CallScreeningService
+import android.telecom.InCallService
 import android.util.Log
+import androidx.annotation.RequiresApi
 
-class IncomingCallScreeningService : CallScreeningService() {
-    override fun onScreenCall(details: CallDetails) {
-        val callerNumber = details.details.handle.schemeSpecificPart
-        Log.d("CallScreening", "Call from: $callerNumber")
+@RequiresApi(Build.VERSION_CODES.Q)
+class IncomingCallScreeningService : InCallService() {
+    companion object {
+        private const val TAG = "CallScreeningService"
+    }
 
-        // Process the call
-        CallProcessor.processCall(applicationContext, callerNumber)
+    override fun onCallAdded(call: Call) {
+        super.onCallAdded(call)
+        Log.d(TAG, "Call added: ${call.details?.handle?.schemeSpecificPart}")
+    }
 
-        // Don't block the call
-        respondToCall(details, CallResponse.Builder().build())
+    override fun onCallRemoved(call: Call) {
+        super.onCallRemoved(call)
+        Log.d(TAG, "Call removed")
     }
 }

@@ -7,8 +7,6 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="work_primary">#4CAF50</color>
-    <color name="sleep_primary">#2196F3</color>
-    <color name="outing_primary">#FF9800</color>
-    <color name="status_bg_light">#F5F5F5</color>
+    <color name="red_500">#FFF44336</color>
+    <color name="green_500">#FF4CAF50</color>
 </resources>
