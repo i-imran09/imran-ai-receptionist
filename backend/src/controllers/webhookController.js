@@ -1,72 +1,129 @@
-import crypto from 'crypto';
-import { processIncomingMessage } from '../services/conversationService.js';
-import { storeWebhookEvent } from '../services/contactEventService.js';
+import { getConfig } from '../config/env.js';
+import { verifyWebhookSignature } from '../middleware/auth.js';
+import { storeConversation, getConversation, addMessage } from '../storage/conversationStorage.js';
+import { generateAIResponse } from '../services/groqService.js';
+import { sendWhatsAppMessage } from '../services/whatsappService.js';
+import { getSystemPrompt } from '../prompts/systemPrompts.js';
 
-export async function handleWebhookGet(req, res) {
-  const verifyToken = req.query['hub.verify_token'];
+const config = getConfig();
+const processedWebhookIds = new Set();
+
+export const verifyWebhook = (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  if (verifyToken === process.env.META_VERIFY_TOKEN) {
-    console.log('✅ Webhook verified by Meta');
+  if (mode === 'subscribe' && token === config.meta.verifyToken) {
+    console.log('[Webhook] Verified');
     res.status(200).send(challenge);
   } else {
-    console.error('❌ Invalid webhook verify token');
-    res.status(403).json({ error: 'Invalid verify token' });
+    console.warn('[Webhook] Verification failed');
+    res.sendStatus(403);
   }
-}
+};
 
-export async function handleWebhookPost(req, res, next) {
+export const handleWebhookMessage = async (req, res) => {
   try {
-    // Webhook is already verified by verifyMetaWebhook middleware
-    const body = req.body;
+    const signature = req.headers['x-hub-signature-256'];
+    const rawBody = JSON.stringify(req.body);
 
-    // Meta sends data in entry[].messaging[] or entry[].changes[]
-    if (body.object !== 'whatsapp_business_account') {
-      return res.status(400).json({ error: 'Invalid object type' });
+    if (!verifyWebhookSignature(rawBody, signature)) {
+      console.warn('[Webhook] Signature verification failed');
+      return res.sendStatus(403);
     }
 
-    // Process each entry
-    if (body.entry && Array.isArray(body.entry)) {
-      for (const entry of body.entry) {
-        // Check for status updates (delivery, read, etc.)
-        if (entry.changes && Array.isArray(entry.changes)) {
-          for (const change of entry.changes) {
-            const value = change.value;
+    res.sendStatus(200);
 
-            // Process incoming messages
-            if (value.messages && Array.isArray(value.messages)) {
-              for (const message of value.messages) {
-                console.log(`📨 Incoming message from ${message.from}`);
+    const { entry } = req.body;
+    if (!entry) return;
 
-                // Store webhook event
-                await storeWebhookEvent({
-                  messageId: message.id,
-                  senderNumber: message.from,
-                  messageType: message.type,
-                  timestamp: new Date(parseInt(message.timestamp) * 1000)
-                });
-
-                // Process and respond to message
-                await processIncomingMessage(message);
-              }
-            }
-
-            // Handle delivery/status updates
-            if (value.statuses && Array.isArray(value.statuses)) {
-              for (const status of value.statuses) {
-                console.log(`📦 Message status: ${status.status} for ${status.id}`);
-              }
-            }
-          }
+    for (const e of entry) {
+      for (const change of e.changes || []) {
+        if (change.field === 'messages') {
+          await processIncomingMessage(change.value);
         }
       }
     }
-
-    // Always respond 200 to acknowledge
-    res.status(200).json({ received: true });
   } catch (error) {
-    console.error('Error in handleWebhookPost:', error);
-    // Still return 200 to prevent Meta resending
-    res.status(200).json({ received: true, error: error.message });
+    console.error('[Webhook Error]', error);
+    res.sendStatus(500);
   }
-}
+};
+
+const processIncomingMessage = async (messageData) => {
+  try {
+    const messages = messageData.messages || [];
+
+    for (const message of messages) {
+      if (message.type !== 'text') continue;
+
+      const webhookId = message.id;
+      if (processedWebhookIds.has(webhookId)) {
+        console.log('[Webhook] Duplicate message, skipping:', webhookId);
+        continue;
+      }
+      processedWebhookIds.add(webhookId);
+
+      const callerNumber = message.from;
+      const incomingText = message.text.body;
+      const timestamp = new Date(message.timestamp * 1000).toISOString();
+
+      console.log(`[Webhook] Message from ${callerNumber}: ${incomingText}`);
+
+      // Get conversation
+      let conversation = await getConversation(callerNumber);
+      if (!conversation) {
+        console.log('[Webhook] No conversation found, creating new');
+        conversation = {
+          id: `conv_${callerNumber}_${Date.now()}`,
+          callerNumber,
+          currentStatus: 'Work',
+          messages: [],
+          repeatCount: 1,
+          createdAt: new Date().toISOString()
+        };
+      }
+
+      // Add incoming message
+      const incomingMsg = {
+        id: webhookId,
+        type: 'incoming',
+        text: incomingText,
+        timestamp,
+        source: 'whatsapp'
+      };
+      conversation.messages.push(incomingMsg);
+
+      // Generate AI response
+      const systemPrompt = getSystemPrompt(conversation.currentStatus, conversation.id);
+      const recentMessages = conversation.messages.slice(-5).map(m => ({
+        role: m.type === 'incoming' ? 'user' : 'assistant',
+        content: m.text
+      }));
+
+      const aiResponse = await generateAIResponse(systemPrompt, incomingText, recentMessages);
+
+      // Add outgoing message
+      const outgoingMsg = {
+        id: `resp_${Date.now()}`,
+        type: 'outgoing',
+        text: aiResponse,
+        timestamp: new Date().toISOString(),
+        source: 'groq'
+      };
+      conversation.messages.push(outgoingMsg);
+
+      // Send AI response
+      const sendResult = await sendWhatsAppMessage(callerNumber, aiResponse);
+      if (sendResult.success) {
+        outgoingMsg.whatsappMessageId = sendResult.messageId;
+      }
+
+      // Store conversation
+      await storeConversation(conversation);
+      console.log('[Webhook] Conversation saved');
+    }
+  } catch (error) {
+    console.error('[ProcessMessage Error]', error);
+  }
+};

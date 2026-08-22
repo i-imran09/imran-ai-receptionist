@@ -1,14 +1,12 @@
 import express from 'express';
-import { handleWebhookGet, handleWebhookPost } from '../controllers/webhookController.js';
-import { verifyMetaWebhook } from '../middleware/auth.js';
-import { rateLimitWebhook } from '../middleware/rateLimit.js';
+import { verifyWebhook, handleWebhookMessage } from '../controllers/webhookController.js';
 
 const router = express.Router();
 
-// GET /webhook (Meta webhook verification)
-router.get('/', handleWebhookGet);
+// Meta webhook verification
+router.get('/', verifyWebhook);
 
-// POST /webhook (incoming WhatsApp messages)
-router.post('/', rateLimitWebhook, verifyMetaWebhook, handleWebhookPost);
+// Meta webhook message handling
+router.post('/', handleWebhookMessage);
 
 export default router;

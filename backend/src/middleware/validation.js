@@ -1,28 +1,22 @@
-export function validateCallFollowupRequest(req, res, next) {
-  const { callerNumber, currentStatus } = req.body;
+export const validateCallFollowup = (req, res, next) => {
+  const { callerNumber, currentStatus, callTimestamp } = req.body;
+  const errors = [];
 
-  // Validate caller number
   if (!callerNumber || typeof callerNumber !== 'string') {
-    return res.status(400).json({
-      error: 'Invalid request: callerNumber is required and must be a string'
-    });
+    errors.push('callerNumber is required and must be a string');
   }
 
-  // Validate status
-  const validStatuses = ['Work', 'Sleep', 'Outing'];
-  if (!currentStatus || !validStatuses.includes(currentStatus)) {
-    return res.status(400).json({
-      error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
-    });
+  if (!['Work', 'Sleep', 'Outing'].includes(currentStatus)) {
+    errors.push('currentStatus must be Work, Sleep, or Outing');
   }
 
-  // Validate phone number format (basic)
-  if (!/^\d{10,15}$/.test(callerNumber.replace(/\D/g, ''))) {
-    return res.status(400).json({
-      error: 'Invalid phone number format'
-    });
+  if (!callTimestamp || isNaN(Date.parse(callTimestamp))) {
+    errors.push('callTimestamp must be a valid ISO 8601 date');
   }
 
-  console.log('✅ Request validation passed');
+  if (errors.length > 0) {
+    return res.status(400).json({ error: 'Validation failed', details: errors });
+  }
+
   next();
-}
+};

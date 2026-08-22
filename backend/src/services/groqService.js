@@ -1,58 +1,37 @@
 import axios from 'axios';
-import { getReceptionistPrompt } from '../prompts/receptionistPrompt.js';
+import { getConfig } from '../config/env.js';
 
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const config = getConfig();
 
-export async function generateTanglishResponse(
-  callerMessage,
-  currentStatus,
-  conversationHistory = []
-) {
+export const generateAIResponse = async (systemPrompt, userMessage, messageHistory = []) => {
   try {
-    console.log(`🤖 Generating Groq response for status: ${currentStatus}`);
-
-    const systemPrompt = getReceptionistPrompt(currentStatus);
-
-    // Build message history
-    const messages = [
-      {
-        role: 'system',
-        content: systemPrompt
-      },
-      ...conversationHistory,
-      {
-        role: 'user',
-        content: callerMessage
-      }
-    ];
-
     const response = await axios.post(
-      GROQ_API_URL,
+      'https://api.groq.com/openai/v1/chat/completions',
       {
-        model: process.env.GROQ_MODEL,
-        messages: messages,
-        temperature: 0.7,
-        max_tokens: 150,
-        top_p: 0.9
+        model: config.groq.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messageHistory,
+          { role: 'user', content: userMessage }
+        ],
+        temperature: config.groq.temperature,
+        max_tokens: config.groq.maxTokens
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          'Authorization': `Bearer ${config.groq.apiKey}`,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 30000
       }
     );
 
-    const generatedText = response.data.choices[0].message.content.trim();
-    console.log(`✅ Groq response generated: ${generatedText.substring(0, 50)}...`);
-
-    return {
-      text: generatedText,
-      status: currentStatus,
-      model: process.env.GROQ_MODEL
-    };
+    if (response.data?.choices?.[0]?.message?.content) {
+      return response.data.choices[0].message.content.trim();
+    }
+    throw new Error('Unexpected Groq response format');
   } catch (error) {
-    console.error('Error generating Groq response:', error.response?.data || error.message);
-    throw new Error(`Failed to generate AI response: ${error.message}`);
+    console.error('[Groq Error]', error.response?.data || error.message);
+    return 'Sorry, I am unable to process your request at the moment. Please try again later.';
   }
-}
+};

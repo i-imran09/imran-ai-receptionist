@@ -1,12 +1,18 @@
-export default function errorHandler(err, req, res, next) {
-  console.error('❌ Error:', err.message);
-
-  // Don't expose internal error details
-  const statusCode = err.statusCode || 500;
-  const message = statusCode === 500 ? 'Internal server error' : err.message;
-
-  res.status(statusCode).json({
-    error: message,
+const errorHandler = (err, req, res, next) => {
+  console.error(`[ERROR] ${err.message}`);
+  
+  const isDev = process.env.NODE_ENV === 'development';
+  const status = err.status || 500;
+  const response = {
+    error: isDev ? err.message : 'Internal server error',
     timestamp: new Date().toISOString()
-  });
-}
+  };
+
+  if (isDev) {
+    response.stack = err.stack;
+  }
+
+  res.status(status).json(response);
+};
+
+export default errorHandler;

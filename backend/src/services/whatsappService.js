@@ -1,95 +1,76 @@
 import axios from 'axios';
+import { getConfig } from '../config/env.js';
 
-const META_API_URL = `https://graph.instagram.com/${process.env.META_GRAPH_API_VERSION}`;
+const config = getConfig();
+const baseUrl = `https://graph.instagram.com/${config.meta.graphApiVersion}/${config.meta.phoneNumberId}/messages`;
 
-export async function sendInitialWhatsAppTemplate(
-  recipientNumber,
-  currentStatus
-) {
-  const templateName = process.env.META_INITIAL_TEMPLATE;
-  const templateLanguage = process.env.META_TEMPLATE_LANGUAGE;
-
-  console.log(
-    `Sending WhatsApp template: ${templateName} to ${recipientNumber}`
-  );
-
+export const sendWhatsAppTemplate = async (recipientNumber, currentStatus) => {
   try {
     const payload = {
       messaging_product: 'whatsapp',
       to: recipientNumber,
       type: 'template',
       template: {
-        name: templateName,
+        name: config.meta.initialTemplate,
         language: {
-          code: templateLanguage
+          code: config.meta.templateLanguage
         },
-        components: [
-          {
-            type: 'body',
-            parameters: [
-              {
-                type: 'text',
-                text: currentStatus
-              }
-            ]
-          }
-        ]
-      }
-    };
-
-    const response = await axios.post(
-      `${META_API_URL}/${process.env.META_PHONE_NUMBER_ID}/messages`,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}`,
-          'Content-Type': 'application/json'
+        body: {
+          parameters: [
+            { type: 'text', text: currentStatus }
+          ]
         }
       }
-    );
-
-    console.log('✅ WhatsApp template sent successfully');
-    return {
-      messageId: response.data.messages[0].id,
-      status: 'sent'
     };
+
+    console.log(`[WhatsApp] Sending template to ${recipientNumber}`);
+
+    const response = await axios.post(baseUrl, payload, {
+      headers: {
+        'Authorization': `Bearer ${config.meta.accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 15000
+    });
+
+    if (response.data?.messages?.[0]?.id) {
+      return { success: true, messageId: response.data.messages[0].id };
+    }
+    return { success: false, error: 'No message ID in response' };
   } catch (error) {
-    console.error('Error sending WhatsApp template:', error.response?.data || error.message);
-    throw new Error(`Failed to send WhatsApp template: ${error.message}`);
+    const errorMsg = error.response?.data?.error?.message || error.message;
+    console.error('[WhatsApp Template Error]', errorMsg);
+    return { success: false, error: errorMsg };
   }
-}
+};
 
-export async function sendTextMessage(recipientNumber, messageText) {
-  console.log(`Sending text message to ${recipientNumber}`);
-
+export const sendWhatsAppMessage = async (recipientNumber, messageText) => {
   try {
+    const text = messageText.substring(0, 4096);
     const payload = {
       messaging_product: 'whatsapp',
       to: recipientNumber,
       type: 'text',
-      text: {
-        body: messageText
-      }
+      text: { body: text }
     };
 
-    const response = await axios.post(
-      `${META_API_URL}/${process.env.META_PHONE_NUMBER_ID}/messages`,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
+    console.log(`[WhatsApp] Sending message to ${recipientNumber}`);
 
-    console.log('✅ Text message sent successfully');
-    return {
-      messageId: response.data.messages[0].id,
-      status: 'sent'
-    };
+    const response = await axios.post(baseUrl, payload, {
+      headers: {
+        'Authorization': `Bearer ${config.meta.accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 15000
+    });
+
+    if (response.data?.messages?.[0]?.id) {
+      return { success: true, messageId: response.data.messages[0].id };
+    }
+    return { success: false, error: 'No message ID in response' };
   } catch (error) {
-    console.error('Error sending text message:', error.response?.data || error.message);
-    throw new Error(`Failed to send text message: ${error.message}`);
+    const errorMsg = error.response?.data?.error?.message || error.message;
+    console.error('[WhatsApp Message Error]', errorMsg);
+    return { success: false, error: errorMsg };
   }
-}
+};
