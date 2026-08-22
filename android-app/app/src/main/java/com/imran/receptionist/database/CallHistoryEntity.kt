@@ -8,29 +8,28 @@ import androidx.room.Query
 
 @Entity(tableName = "call_history")
 data class CallHistoryEntity(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val callerNumber: String,
-    val callerName: String? = null,
     val currentStatus: String,
     val callTimestamp: Long,
+    val eventId: String,
     val callCount: Int = 1,
     val templateSent: Boolean = false
 )
 
 @Dao
 interface CallHistoryDao {
-    @Insert
-    suspend fun insert(call: CallHistoryEntity)
+    @Insert suspend fun insert(call: CallHistoryEntity)
 
     @Query("SELECT * FROM call_history ORDER BY callTimestamp DESC LIMIT :limit")
-    suspend fun getRecentCalls(limit: Int): List<CallHistoryEntity>
+    suspend fun getRecentCalls(limit: Int = 20): List<CallHistoryEntity>
 
-    @Query("SELECT * FROM call_history WHERE callerNumber = :number AND callTimestamp > :since LIMIT 1")
+    @Query("SELECT * FROM call_history WHERE callerNumber=:number AND callTimestamp>:since ORDER BY callTimestamp DESC LIMIT 1")
     suspend fun getRecentCall(number: String, since: Long): CallHistoryEntity?
 
-    @Query("UPDATE call_history SET callCount = callCount + 1 WHERE callerNumber = :number")
+    @Query("UPDATE call_history SET callCount=callCount+1 WHERE callerNumber=:number AND id=(SELECT id FROM call_history WHERE callerNumber=:number ORDER BY callTimestamp DESC LIMIT 1)")
     suspend fun incrementCallCount(number: String)
 
-    @Query("DELETE FROM call_history")
-    suspend fun clear()
+    @Query("UPDATE call_history SET templateSent=1 WHERE eventId=:eventId")
+    suspend fun markTemplateSent(eventId: String)
 }

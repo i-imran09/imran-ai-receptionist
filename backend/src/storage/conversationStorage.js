@@ -1,60 +1,20 @@
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import fs from "fs/promises";
+import path from "path";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const storageDir = path.join(__dirname, '../../storage/conversations');
+const dir = process.env.DATA_DIR || path.join(process.cwd(), "data");
+const file = path.join(dir, "conversations.json");
 
-// Ensure directory exists
-if (!fs.existsSync(storageDir)) {
-  fs.mkdirSync(storageDir, { recursive: true });
+async function load() {
+  try { return JSON.parse(await fs.readFile(file, "utf8")); }
+  catch { return {}; }
 }
-
-const getFilePath = (callerNumber) => {
-  const normalized = callerNumber.replace(/[^0-9]/g, '');
-  return path.join(storageDir, `${normalized}.json`);
-};
-
-export const storeConversation = async (conversation) => {
-  return new Promise((resolve, reject) => {
-    const filePath = getFilePath(conversation.callerNumber);
-    const data = JSON.stringify(conversation, null, 2);
-    
-    fs.writeFile(filePath, data, 'utf8', (err) => {
-      if (err) {
-        console.error('[Storage] Write error:', err);
-        reject(err);
-      } else {
-        console.log('[Storage] Conversation saved:', conversation.id);
-        resolve();
-      }
-    });
-  });
-};
-
-export const getConversation = async (callerNumber) => {
-  return new Promise((resolve) => {
-    const filePath = getFilePath(callerNumber);
-    
-    fs.readFile(filePath, 'utf8', (err, data) => {
-      if (err) {
-        if (err.code !== 'ENOENT') {
-          console.error('[Storage] Read error:', err);
-        }
-        resolve(null);
-      } else {
-        try {
-          resolve(JSON.parse(data));
-        } catch (parseErr) {
-          console.error('[Storage] Parse error:', parseErr);
-          resolve(null);
-        }
-      }
-    });
-  });
-};
-
-export const addMessage = async (conversationId, message) => {
-  // Implementation for adding message to conversation
-  console.log('[Storage] Message added:', message.id);
-};
+async function save(db) {
+  await fs.mkdir(dir, {recursive:true});
+  await fs.writeFile(file, JSON.stringify(db, null, 2));
+}
+export async function getConversation(phone) {
+  const db=await load(); return db[phone] || null;
+}
+export async function storeConversation(conv) {
+  const db=await load(); db[conv.callerNumber]=conv; await save(db); return conv;
+}

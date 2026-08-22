@@ -3,49 +3,51 @@ package com.imran.receptionist.call
 import android.content.Context
 import android.util.Log
 import com.imran.receptionist.contacts.ContactChecker
+import com.imran.receptionist.database.CallDatabase
+import com.imran.receptionist.database.CallHistoryEntity
 import com.imran.receptionist.network.ApiService
+import com.imran.receptionist.network.CallFollowupRequest
 import com.imran.receptionist.status.StatusRepository
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
+import java.util.UUID
 
 object CallProcessor {
-    private val debouncer = Debouncer<String>()
+    suspend fun process(context: Context, rawNumber: String) {
+        val number = PhoneNormalizer.normalize(rawNumber)
+        if (number.length < 10) return
 
-    fun processCall(context: Context, callerNumber: String) {
-        // Debounce to prevent duplicate processing
-        debouncer.debounce(callerNumber, 2000) {
-            GlobalScope.launch {
-                try {
-                    val normalizedNumber = PhoneNormalizer.normalize(callerNumber)
-                    Log.d("CallProcessor", "Processing call from: $normalizedNumber")
+        if (ContactChecker(context).isContactSaved(rawNumber)) {
+            Log.i("ImranAI", "Saved contact ignored")
+            return
+        }
 
-                    // Check if contact is saved
-                    val isSavedContact = ContactChecker.isSavedContact(context, normalizedNumber)
-                    if (isSavedContact) {
-                        Log.d("CallProcessor", "Saved contact - ignoring")
-                        return@launch
-                    }
+        val dao = CallDatabase.getDatabase(context).callHistoryDao()
+        val now = System.currentTimeMillis()
+        val recent = dao.getRecentCall(number, now - 120_000)
+        if (recent != null) {
+            dao.incrementCallCount(number)
+            Log.i("ImranAI", "Duplicate callback suppressed")
+            return
+        }
 
-                    // Get current status
-                    val statusRepository = StatusRepository(context)
-                    val currentStatus = statusRepository.getStatus()
+        val status = StatusRepository(context).getStatus()
+        val eventId = UUID.randomUUID().toString()
+        dao.insert(
+            CallHistoryEntity(
+                callerNumber = number,
+                currentStatus = status,
+                callTimestamp = now,
+                eventId = eventId
+            )
+        )
 
-                    // Send to backend
-                    val apiService = ApiService.create(context)
-                    val response = apiService.reportCall(
-                        callerNumber = normalizedNumber,
-                        currentStatus = currentStatus
-                    )
-
-                    if (response.isSuccessful) {
-                        Log.d("CallProcessor", "Call reported to backend")
-                    } else {
-                        Log.e("CallProcessor", "Failed to report call: ${response.code()}")
-                    }
-                } catch (e: Exception) {
-                    Log.e("CallProcessor", "Error processing call", e)
-                }
-            }
+        try {
+            val response = ApiService.create().reportCall(
+                CallFollowupRequest(number, status, eventId, now)
+            )
+            if (response.isSuccessful) dao.markTemplateSent(eventId)
+            else Log.e("ImranAI", "Backend HTTP ${response.code()}")
+        } catch (e: Exception) {
+            Log.e("ImranAI", "Backend call failed", e)
         }
     }
 }

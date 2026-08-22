@@ -1,31 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <!-- Phone permissions -->
-    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <uses-permission android:name="android.permission.READ_CALL_LOG" />
-    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
-
-    <!-- Call screening role permission (Android 10+) -->
-    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
-
-    <!-- Contact permissions -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-
-    <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-    <!-- Storage (for database) -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 
     <application
         android:allowBackup="true"
-        android:dataExtractionRules="@xml/data_extraction_rules"
-        android:fullBackupContent="@xml/backup_rules"
-        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:supportsRtl="true"
         android:theme="@style/Theme.ImranReceptionist">
 
         <activity
@@ -38,17 +18,13 @@
             </intent-filter>
         </activity>
 
-        <!-- Call Screening Service (Android 10+) -->
         <service
-            android:name=".call.IncomingCallScreeningService"
-            android:enabled="true"
+            android:name=".call.CallScreeningService"
             android:exported="true"
             android:permission="android.permission.BIND_SCREENING_SERVICE">
             <intent-filter>
-                <action android:name="android.telecom.InCallService" />
+                <action android:name="android.telecom.CallScreeningService" />
             </intent-filter>
         </service>
-
     </application>
-
 </manifest>

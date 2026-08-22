@@ -1,56 +1,32 @@
-import { normalizePhoneNumber } from '../utils/phoneUtils.js';
-import { sendWhatsAppTemplate } from '../services/whatsappService.js';
-import { storeConversation, getConversation } from '../storage/conversationStorage.js';
+import { normalizePhoneNumber } from "../utils/phoneUtils.js";
+import { sendWhatsAppTemplate } from "../services/whatsappService.js";
+import { storeConversation, getConversation } from "../storage/conversationStorage.js";
 
-export const processCallFollowup = async (req, res) => {
+export async function processCallFollowup(req,res,next) {
   try {
-    const { callerNumber, currentStatus, callTimestamp } = req.body;
-    const normalized = normalizePhoneNumber(callerNumber);
+    const {callerNumber,currentStatus,eventId,callTimestamp} = req.body;
+    const phone=normalizePhoneNumber(callerNumber);
+    let c=await getConversation(phone);
+    const now=new Date().toISOString();
 
-    console.log(`[CallFollowup] Processing: ${normalized}, Status: ${currentStatus}`);
+    if (c?.processedEventIds?.includes(eventId))
+      return res.json({success:true,conversationId:c.id,deduplicated:true});
 
-    // Get or create conversation
-    let conversation = await getConversation(normalized);
-    if (!conversation) {
-      conversation = {
-        id: `conv_${normalized}_${Date.now()}`,
-        callerNumber: normalized,
-        currentStatus,
-        callTimestamp,
-        messages: [],
-        repeatCount: 1,
-        firstCallTime: callTimestamp,
-        lastCallTime: callTimestamp,
-        templateSent: false,
-        createdAt: new Date().toISOString()
-      };
-    } else {
-      // Update repeat count
-      conversation.repeatCount = (conversation.repeatCount || 1) + 1;
-      conversation.lastCallTime = callTimestamp;
-      conversation.currentStatus = currentStatus;
+    c = c || {id:`conv_${phone}_${Date.now()}`,callerNumber:phone,messages:[],repeatCount:0,processedEventIds:[]};
+    c.currentStatus=currentStatus;
+    c.lastCallTime=callTimestamp || Date.now();
+    c.repeatCount=(c.repeatCount||0)+1;
+    c.processedEventIds=[...(c.processedEventIds||[]).slice(-49), eventId];
+
+    // Avoid template spam: one proactive template per 15 minutes.
+    const cooldown=15*60*1000;
+    const last=Number(c.lastTemplateAt||0);
+    if (Date.now()-last >= cooldown) {
+      const result=await sendWhatsAppTemplate(phone,currentStatus);
+      c.lastTemplateAt=Date.now();
+      c.templateMessageId=result.messageId;
     }
-
-    // Send WhatsApp template
-    const templateResult = await sendWhatsAppTemplate(normalized, currentStatus);
-
-    if (templateResult.success) {
-      conversation.templateSent = true;
-      conversation.templateMessageId = templateResult.messageId;
-      conversation.templateSentTime = new Date().toISOString();
-      
-      await storeConversation(conversation);
-
-      res.json({
-        success: true,
-        conversationId: conversation.id,
-        messageId: templateResult.messageId
-      });
-    } else {
-      throw new Error(templateResult.error);
-    }
-  } catch (error) {
-    console.error('[CallFollowup Error]', error);
-    res.status(500).json({ error: error.message });
-  }
-};
+    await storeConversation(c);
+    res.json({success:true,conversationId:c.id,messageId:c.templateMessageId||null});
+  } catch(e){ next(e); }
+}

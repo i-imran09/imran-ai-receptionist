@@ -1,97 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="20dp">
 
-    <TextView
-        android:id="@+id/tv_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Imran AI Receptionist"
-        android:textSize="28sp"
-        android:textStyle="bold"
-        android:textColor="#6200EE"
-        android:layout_marginBottom="24dp" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Imran AI Receptionist" android:textSize="26sp" android:textStyle="bold" />
 
-    <TextView
-        android:id="@+id/tv_status_label"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Current Status"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp" />
+    <TextView android:id="@+id/tv_setup" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Setup required"
+        android:paddingTop="16dp" android:paddingBottom="8dp" />
 
-    <TextView
-        android:id="@+id/tv_current_status"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Work"
-        android:textSize="20sp"
-        android:textColor="#6200EE"
-        android:layout_marginBottom="16dp" />
+    <Button android:id="@+id/btn_enable" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Enable AI Receptionist" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:spacing="8dp"
-        android:layout_marginBottom="24dp">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Current Status" android:textStyle="bold" android:paddingTop="28dp" />
 
-        <Button
-            android:id="@+id/btn_work"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Work"
-            android:backgroundTint="#6200EE" />
+    <TextView android:id="@+id/tv_current_status" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Work" android:textSize="22sp"
+        android:paddingBottom="12dp" />
 
-        <Button
-            android:id="@+id/btn_sleep"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Sleep"
-            android:backgroundTint="#03DAC5" />
+    <Button android:id="@+id/btn_work" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Work" />
+    <Button android:id="@+id/btn_sleep" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Sleep" />
+    <Button android:id="@+id/btn_outing" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Outing" />
 
-        <Button
-            android:id="@+id/btn_outing"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Outing"
-            android:backgroundTint="#FF9800" />
-
-    </LinearLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#E0E0E0"
-        android:layout_marginBottom="16dp" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Recent Call History"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp" />
-
-    <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
-
-        <LinearLayout
-            android:id="@+id/ll_call_history"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical" />
-
-    </ScrollView>
-
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingTop="28dp"
+        android:text="Saved contacts are ignored. Unknown callers are sent to the configured backend for WhatsApp follow-up." />
 </LinearLayout>
