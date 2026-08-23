@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+.env.*
+*.log
+webhook_before_*.py
+webhook_working_backup.py
+webhook_render_ready.py
