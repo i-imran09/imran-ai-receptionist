@@ -81,7 +81,12 @@ class MainActivity : AppCompatActivity() {
         binding.btnEnable.setOnClickListener { startSetup() }
 
         binding.btnConversations.setOnClickListener {
-            // Conversation screen will be connected next.
+            startActivity(
+                Intent(
+                    this,
+                    com.imran.receptionist.conversations.ConversationsActivity::class.java
+                )
+            )
         }
 
         binding.btnDatabase.setOnClickListener {
