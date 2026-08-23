@@ -6,6 +6,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.ArrayAdapter
+import android.widget.AdapterView
+import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -29,17 +32,71 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         statusRepository = StatusRepository(applicationContext)
 
-        binding.btnWork.setOnClickListener { setStatus("Work") }
-        binding.btnSleep.setOnClickListener { setStatus("Sleep") }
-        binding.btnOuting.setOnClickListener { setStatus("Outing") }
+        val statuses = listOf(
+            "Work",
+            "Sleep",
+            "Outing",
+            "Driving",
+            "Meeting",
+            "Eating",
+            "Travel",
+            "Exercise",
+            "Personal Work",
+            "Family Time",
+            "Prayer",
+            "Busy",
+            "Free"
+        )
+
+        val statusAdapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_item,
+            statuses
+        )
+
+        statusAdapter.setDropDownViewResource(
+            android.R.layout.simple_spinner_dropdown_item
+        )
+
+        binding.spinnerStatus.adapter = statusAdapter
+
+        binding.spinnerStatus.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    val selected = statuses[position]
+
+                    if (binding.tvCurrentStatus.text.toString() != selected) {
+                        setStatus(selected)
+                    }
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+
         binding.btnEnable.setOnClickListener { startSetup() }
+
+        binding.btnConversations.setOnClickListener {
+            // Conversation screen will be connected next.
+        }
+
+        binding.btnDatabase.setOnClickListener {
+            // Database dashboard will be connected next.
+        }
 
         lifecycleScope.launch {
             statusRepository.currentStatus.collect {
                 binding.tvCurrentStatus.text = it
-                binding.btnWork.alpha = if (it == "Work") 1f else .5f
-                binding.btnSleep.alpha = if (it == "Sleep") 1f else .5f
-                binding.btnOuting.alpha = if (it == "Outing") 1f else .5f
+
+                val position = statuses.indexOf(it)
+                if (position >= 0 &&
+                    binding.spinnerStatus.selectedItemPosition != position) {
+                    binding.spinnerStatus.setSelection(position)
+                }
             }
         }
     }
