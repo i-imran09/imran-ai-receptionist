@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Imran AI Receptionist" android:textSize="26sp" android:textStyle="bold" />
+
+    <TextView android:id="@+id/tv_setup" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Setup required"
+        android:paddingTop="16dp" android:paddingBottom="8dp" />
+
+    <Button android:id="@+id/btn_enable" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Enable AI Receptionist" />
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Current Status" android:textStyle="bold" android:paddingTop="28dp" />
+
+    <TextView android:id="@+id/tv_current_status" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Work" android:textSize="22sp"
+        android:paddingBottom="12dp" />
+
+    <Button android:id="@+id/btn_work" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Work" />
+    <Button android:id="@+id/btn_sleep" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Sleep" />
+    <Button android:id="@+id/btn_outing" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Outing" />
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingTop="28dp"
+        android:text="Saved contacts are ignored. Unknown callers are sent to the configured backend for WhatsApp follow-up." />
+</LinearLayout>

@@ -1,0 +1,56 @@
+services:
+  - type: web
+    name: imran-ai-receptionist-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_CLIENT_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-20b
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_PHONE_NUMBER_ID
+        sync: false
+      - key: META_VERIFY_TOKEN
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_GRAPH_API_VERSION
+        sync: false
+      - key: META_INITIAL_TEMPLATE
+        value: imran_call_followup
+      - key: META_TEMPLATE_LANGUAGE
+        value: en_US
+
+  - type: web
+    name: imran-ai-receptionist-ai-webhook
+    runtime: python
+    rootDir: ai-webhook
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn webhook:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: IMRAN_STATUS
+        value: Work
+      - key: VERIFY_TOKEN
+        sync: false
