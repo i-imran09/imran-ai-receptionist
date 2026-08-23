@@ -8,7 +8,7 @@ import requests
 
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = "openai/gpt-oss-20b"
+GROQ_MODEL = "groq/compound-mini"
 CURRENT_STATUS = os.getenv("IMRAN_STATUS", "Work")
 
 ACCESS_TOKEN = os.getenv("WHATSAPP_TOKEN")
@@ -316,7 +316,6 @@ The latest caller message has the strongest priority for language style.
             json={
                 "model": GROQ_MODEL,
                 "messages": messages,
-                "reasoning_effort": "low",
                 "max_completion_tokens": 180
             },
             timeout=30
