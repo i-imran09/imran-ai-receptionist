@@ -877,3 +877,111 @@ def api_database_stats():
             "success": False,
             "error": "Unable to calculate database statistics"
         }), 500
+
+# ============================================================
+# ANDROID APP - DATABASE DELETE API
+# ============================================================
+
+@app.delete("/api/database/conversations/<phone_number>")
+def api_delete_conversation(phone_number):
+    if not require_app_client():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        r = requests.delete(
+            SUPABASE_URL.rstrip("/") + "/rest/v1/conversations",
+            headers=supabase_headers(),
+            params={
+                "phone_number": f"eq.{phone_number}"
+            },
+            timeout=20
+        )
+
+        r.raise_for_status()
+
+        return jsonify({
+            "success": True,
+            "phone_number": phone_number,
+            "deleted": "conversation"
+        }), 200
+
+    except Exception as e:
+        print("DELETE CONVERSATION ERROR:", repr(e), flush=True)
+        return jsonify({
+            "success": False,
+            "error": "Unable to delete conversation"
+        }), 500
+
+
+@app.delete("/api/database/caller/<phone_number>")
+def api_delete_caller(phone_number):
+    if not require_app_client():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        # Delete conversation history first
+        conversation_response = requests.delete(
+            SUPABASE_URL.rstrip("/") + "/rest/v1/conversations",
+            headers=supabase_headers(),
+            params={
+                "phone_number": f"eq.{phone_number}"
+            },
+            timeout=20
+        )
+
+        conversation_response.raise_for_status()
+
+        # Then delete saved caller profile
+        profile_response = requests.delete(
+            SUPABASE_URL.rstrip("/") + "/rest/v1/caller_profiles",
+            headers=supabase_headers(),
+            params={
+                "phone_number": f"eq.{phone_number}"
+            },
+            timeout=20
+        )
+
+        profile_response.raise_for_status()
+
+        return jsonify({
+            "success": True,
+            "phone_number": phone_number,
+            "deleted": "caller_and_conversation"
+        }), 200
+
+    except Exception as e:
+        print("DELETE CALLER ERROR:", repr(e), flush=True)
+        return jsonify({
+            "success": False,
+            "error": "Unable to delete caller data"
+        }), 500
+
+
+@app.delete("/api/database/conversations")
+def api_clear_conversations():
+    if not require_app_client():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        r = requests.delete(
+            SUPABASE_URL.rstrip("/") + "/rest/v1/conversations",
+            headers=supabase_headers(),
+            params={
+                "phone_number": "not.is.null"
+            },
+            timeout=20
+        )
+
+        r.raise_for_status()
+
+        return jsonify({
+            "success": True,
+            "deleted": "all_conversations"
+        }), 200
+
+    except Exception as e:
+        print("CLEAR CONVERSATIONS ERROR:", repr(e), flush=True)
+        return jsonify({
+            "success": False,
+            "error": "Unable to clear conversations"
+        }), 500
