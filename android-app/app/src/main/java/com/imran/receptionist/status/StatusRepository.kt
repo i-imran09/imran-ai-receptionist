@@ -18,7 +18,21 @@ class StatusRepository(private val context: Context) {
     suspend fun getStatus(): String = currentStatus.first()
 
     suspend fun setStatus(value: String) {
-        require(value in setOf("Work", "Sleep", "Outing"))
+        require(value in setOf(
+            "Work",
+            "Sleep",
+            "Outing",
+            "Driving",
+            "Meeting",
+            "Eating",
+            "Travel",
+            "Exercise",
+            "Personal Work",
+            "Family Time",
+            "Prayer",
+            "Busy",
+            "Free"
+        ))
         context.statusDataStore.edit { it[key] = value }
     }
 }

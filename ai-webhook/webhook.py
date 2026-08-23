@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import os
+import re
 from datetime import datetime
 
 app = Flask(__name__)
@@ -118,7 +119,11 @@ def get_imran_status(default="Work"):
 
         rows = r.json()
 
-        if rows and rows[0].get("status") in ("Work", "Sleep", "Outing"):
+        if rows and rows[0].get("status") in (
+            "Work", "Sleep", "Outing", "Driving", "Meeting",
+            "Eating", "Travel", "Exercise", "Personal Work",
+            "Family Time", "Prayer", "Busy", "Free"
+        ):
             return rows[0]["status"]
 
     except Exception as e:
@@ -127,6 +132,163 @@ def get_imran_status(default="Work"):
     return default
 
 
+
+
+def get_caller_name(phone_number):
+    """Return saved caller name, or None if this caller is new."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None
+
+    try:
+        url = SUPABASE_URL.rstrip("/") + "/rest/v1/caller_profiles"
+
+        r = requests.get(
+            url,
+            headers=supabase_headers(),
+            params={
+                "phone_number": f"eq.{phone_number}",
+                "select": "caller_name",
+                "limit": "1"
+            },
+            timeout=20
+        )
+
+        r.raise_for_status()
+        rows = r.json()
+
+        if rows:
+            name = rows[0].get("caller_name")
+            if name and name.strip():
+                return name.strip()
+
+    except Exception as e:
+        print("CALLER NAME LOAD ERROR:", repr(e), flush=True)
+
+    return None
+
+
+def save_caller_name(phone_number, caller_name):
+    """Create/update caller profile with the caller's name."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return False
+
+    caller_name = (caller_name or "").strip()
+
+    if not caller_name:
+        return False
+
+    try:
+        url = SUPABASE_URL.rstrip("/") + "/rest/v1/caller_profiles"
+
+        payload = {
+            "phone_number": phone_number,
+            "caller_name": caller_name,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+
+        headers = supabase_headers().copy()
+        headers["Prefer"] = "resolution=merge-duplicates"
+
+        r = requests.post(
+            url,
+            headers=headers,
+            params={"on_conflict": "phone_number"},
+            json=payload,
+            timeout=20
+        )
+
+        r.raise_for_status()
+
+        print(
+            f"CALLER PROFILE SAVED: {phone_number} -> {caller_name}",
+            flush=True
+        )
+        return True
+
+    except Exception as e:
+        print("CALLER NAME SAVE ERROR:", repr(e), flush=True)
+        return False
+
+
+
+def looks_like_name(text):
+    """
+    Conservative name detector.
+    Accept short human-name-like replies and reject obvious conversation text.
+    """
+    if not text:
+        return None
+
+    raw = text.strip()
+
+    # Remove common intro phrases
+    cleaned = raw
+    prefixes = [
+        r"(?i)^my name is\s+",
+        r"(?i)^i am\s+",
+        r"(?i)^i'm\s+",
+        r"(?i)^this is\s+",
+        r"(?i)^naan\s+",
+        r"(?i)^na\s+",
+        r"(?i)^en peru\s+",
+        r"(?i)^ennoda peru\s+",
+        r"(?i)^name\s*[:\-]\s*",
+    ]
+
+    for pattern in prefixes:
+        cleaned = re.sub(pattern, "", cleaned).strip()
+
+    # Remove casual suffixes
+    cleaned = re.sub(r"(?i)\s+(bro|boss|anna|machan|machi|sir)$", "", cleaned).strip()
+
+    # Reject long sentences
+    words = cleaned.split()
+    if not (1 <= len(words) <= 4):
+        return None
+
+    # Reject likely topic/status words
+    blocked = {
+        "project", "website", "ecommerce", "payment", "meeting",
+        "urgent", "work", "sleep", "outing", "driving", "travel",
+        "busy", "free", "call", "update", "backend", "frontend",
+        "design", "deadline", "matter", "help", "available"
+    }
+
+    lowered_words = {w.lower().strip(".,!?") for w in words}
+
+    if lowered_words & blocked:
+        return None
+
+    # Allow letters, spaces, apostrophe, dot, hyphen only
+    if not re.fullmatch(r"[A-Za-z][A-Za-z .'-]{0,60}", cleaned):
+        return None
+
+    # Title-case for clean storage
+    return " ".join(part.capitalize() for part in cleaned.split())
+
+
+def previous_ai_asked_name(phone_number):
+    history = load_conversation_history(phone_number, limit=4)
+
+    for item in reversed(history):
+        if item.get("role") != "assistant":
+            continue
+
+        text = (item.get("content") or "").lower()
+
+        name_markers = [
+            "unga name",
+            "your name",
+            "may i know your name",
+            "name enna",
+            "peru enna",
+            "உங்கள் பெயர்",
+            "உங்க பெயர்"
+        ]
+
+        return any(marker in text for marker in name_markers)
+
+    return False
 
 def ask_groq(user_message, sender="unknown", status="Work"):
     if not GROQ_API_KEY:
@@ -138,10 +300,51 @@ def ask_groq(user_message, sender="unknown", status="Work"):
     # Always use latest persistent Imran status
     status = get_imran_status(status)
 
+    # Load persistent caller identity
+    caller_name = get_caller_name(sender)
+
+    caller_identity = (
+        f"KNOWN CALLER NAME: {caller_name}"
+        if caller_name
+        else "KNOWN CALLER NAME: UNKNOWN"
+    )
+
     system_prompt = f"""
 You are Imran's personal AI receptionist on WhatsApp.
 
 CURRENT IMRAN STATUS: {status}
+{caller_identity}
+
+CALLER IDENTITY RULES:
+
+Caller identity is important and must be collected naturally.
+
+If KNOWN CALLER NAME is UNKNOWN:
+- Your first priority is to learn the caller's name.
+- Ask their name naturally in the same language/style they are using.
+- Do not continue into a long discussion without learning their name.
+- You may briefly answer an immediate availability question, but also ask their name.
+- Ask only for their name first; do not ask name, reason, deadline and urgency all at once.
+
+Examples:
+
+Thanglish:
+"Imran ippo work-la irukaaru bro. Unga name enna nu sollunga?"
+
+English:
+"Imran is currently at work. May I know your name?"
+
+Tamil:
+Reply naturally in Tamil and ask their name.
+
+If KNOWN CALLER NAME contains a real saved name:
+- Never ask for their name again.
+- Treat that name as the caller's identity.
+- You may use their name naturally when useful.
+- Do not repeat their name unnecessarily in every message.
+
+Never guess a caller's name from a project name, company name,
+topic, greeting, or ordinary conversation.
 
 ROLE:
 You are NOT Imran.
@@ -425,6 +628,21 @@ def receive_webhook():
             if msg_type == "text":
                 text = msg.get("text", {}).get("body", "")
                 print(f"FROM: {sender} | TEXT: {text}", flush=True)
+
+                caller_name = get_caller_name(sender)
+
+                # If we previously asked for the caller's name,
+                # try to extract and store it before generating the next reply.
+                if not caller_name and previous_ai_asked_name(sender):
+                    extracted_name = looks_like_name(text)
+
+                    if extracted_name:
+                        if save_caller_name(sender, extracted_name):
+                            caller_name = extracted_name
+                            print(
+                                f"CALLER NAME CAPTURED: {sender} -> {caller_name}",
+                                flush=True
+                            )
 
                 reply = ask_groq(text, sender, CURRENT_STATUS)
                 print(f"AI REPLY: {reply}", flush=True)
