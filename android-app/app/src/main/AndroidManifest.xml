@@ -9,6 +9,21 @@
         android:theme="@style/Theme.ImranReceptionist">
 
         <activity
+            android:name=".databaseui.DatabaseActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".conversations.ConversationsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".conversations.ConversationDetailActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:screenOrientation="portrait">

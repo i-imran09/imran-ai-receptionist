@@ -90,7 +90,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnDatabase.setOnClickListener {
-            // Database dashboard will be connected next.
+            startActivity(
+                Intent(
+                    this,
+                    com.imran.receptionist.databaseui.DatabaseActivity::class.java
+                )
+            )
         }
 
         lifecycleScope.launch {

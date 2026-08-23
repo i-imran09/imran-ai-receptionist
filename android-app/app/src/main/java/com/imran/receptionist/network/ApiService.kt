@@ -7,6 +7,8 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.DELETE
+import retrofit2.http.Path
 import retrofit2.http.POST
 import java.util.concurrent.TimeUnit
 
@@ -45,6 +47,13 @@ data class ConversationsResponse(
     val conversations: List<ConversationItem>
 )
 
+data class DatabaseDeleteResponse(
+    val success: Boolean,
+    val deleted: String? = null,
+    val phone_number: String? = null,
+    val error: String? = null
+)
+
 data class DatabaseStatsResponse(
     val success: Boolean,
     val caller_profiles: Int,
@@ -68,6 +77,20 @@ interface ApiService {
     @GET("api/database/stats")
     suspend fun getDatabaseStats():
         retrofit2.Response<DatabaseStatsResponse>
+
+    @DELETE("api/database/caller/{phoneNumber}")
+    suspend fun deleteCaller(
+        @Path("phoneNumber") phoneNumber: String
+    ): retrofit2.Response<DatabaseDeleteResponse>
+
+    @DELETE("api/database/conversations/{phoneNumber}")
+    suspend fun deleteConversation(
+        @Path("phoneNumber") phoneNumber: String
+    ): retrofit2.Response<DatabaseDeleteResponse>
+
+    @DELETE("api/database/conversations")
+    suspend fun clearAllConversations():
+        retrofit2.Response<DatabaseDeleteResponse>
 
     companion object {
         fun create(): ApiService {
