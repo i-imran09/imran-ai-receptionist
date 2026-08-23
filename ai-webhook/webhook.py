@@ -698,3 +698,182 @@ def privacy():
 if __name__ == "__main__":
     print("Imran AI Receptionist webhook starting...", flush=True)
     app.run(host="0.0.0.0", port=5000)
+
+# ============================================================
+# ANDROID APP - CONVERSATION / DATABASE API
+# ============================================================
+
+def require_app_client():
+    """Protect private Android management APIs."""
+    expected = os.getenv("APP_CLIENT_TOKEN", "")
+    supplied = request.headers.get("Authorization", "")
+
+    if not expected:
+        return False
+
+    return supplied == f"Bearer {expected}"
+
+
+@app.get("/api/conversations")
+def api_conversations():
+    if not require_app_client():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return jsonify({"error": "Database unavailable"}), 503
+
+    try:
+        # Load caller profiles
+        profile_response = requests.get(
+            SUPABASE_URL.rstrip("/") + "/rest/v1/caller_profiles",
+            headers=supabase_headers(),
+            params={
+                "select": "phone_number,caller_name,created_at,updated_at",
+                "order": "updated_at.desc"
+            },
+            timeout=20
+        )
+        profile_response.raise_for_status()
+        profiles = profile_response.json()
+
+        names = {
+            row.get("phone_number"): row.get("caller_name")
+            for row in profiles
+        }
+
+        # Load messages
+        message_response = requests.get(
+            SUPABASE_URL.rstrip("/") + "/rest/v1/conversations",
+            headers=supabase_headers(),
+            params={
+                "select": "phone_number,role,message,imran_status,created_at",
+                "order": "created_at.asc"
+            },
+            timeout=20
+        )
+        message_response.raise_for_status()
+        messages = message_response.json()
+
+        grouped = {}
+
+        for msg in messages:
+            phone = msg.get("phone_number")
+
+            if not phone:
+                continue
+
+            if phone not in grouped:
+                grouped[phone] = {
+                    "phone_number": phone,
+                    "caller_name": names.get(phone),
+                    "message_count": 0,
+                    "last_message": None,
+                    "last_message_at": None,
+                    "messages": []
+                }
+
+            item = {
+                "role": msg.get("role"),
+                "message": msg.get("message"),
+                "imran_status": msg.get("imran_status"),
+                "created_at": msg.get("created_at")
+            }
+
+            grouped[phone]["messages"].append(item)
+            grouped[phone]["message_count"] += 1
+            grouped[phone]["last_message"] = msg.get("message")
+            grouped[phone]["last_message_at"] = msg.get("created_at")
+
+        # Also show saved callers who currently have no messages
+        for phone, caller_name in names.items():
+            if phone not in grouped:
+                grouped[phone] = {
+                    "phone_number": phone,
+                    "caller_name": caller_name,
+                    "message_count": 0,
+                    "last_message": None,
+                    "last_message_at": None,
+                    "messages": []
+                }
+
+        result = list(grouped.values())
+
+        result.sort(
+            key=lambda x: x.get("last_message_at") or "",
+            reverse=True
+        )
+
+        return jsonify({
+            "success": True,
+            "caller_count": len(result),
+            "conversations": result
+        }), 200
+
+    except Exception as e:
+        print("CONVERSATION API ERROR:", repr(e), flush=True)
+        return jsonify({
+            "success": False,
+            "error": "Unable to load conversations"
+        }), 500
+
+
+@app.get("/api/database/stats")
+def api_database_stats():
+    if not require_app_client():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return jsonify({"error": "Database unavailable"}), 503
+
+    try:
+        profiles_response = requests.get(
+            SUPABASE_URL.rstrip("/") + "/rest/v1/caller_profiles",
+            headers=supabase_headers(),
+            params={
+                "select": "phone_number,caller_name"
+            },
+            timeout=20
+        )
+        profiles_response.raise_for_status()
+        profiles = profiles_response.json()
+
+        conversations_response = requests.get(
+            SUPABASE_URL.rstrip("/") + "/rest/v1/conversations",
+            headers=supabase_headers(),
+            params={
+                "select": "phone_number,role,message,imran_status,created_at"
+            },
+            timeout=20
+        )
+        conversations_response.raise_for_status()
+        conversations = conversations_response.json()
+
+        # Approximate JSON payload size used by app records.
+        # This is NOT the complete PostgreSQL project size/quota.
+        import json
+
+        profile_bytes = len(
+            json.dumps(profiles, ensure_ascii=False).encode("utf-8")
+        )
+
+        conversation_bytes = len(
+            json.dumps(conversations, ensure_ascii=False).encode("utf-8")
+        )
+
+        total_bytes = profile_bytes + conversation_bytes
+
+        return jsonify({
+            "success": True,
+            "caller_profiles": len(profiles),
+            "conversation_messages": len(conversations),
+            "approx_data_bytes": total_bytes,
+            "approx_data_kb": round(total_bytes / 1024, 2),
+            "approx_data_mb": round(total_bytes / (1024 * 1024), 3)
+        }), 200
+
+    except Exception as e:
+        print("DATABASE STATS ERROR:", repr(e), flush=True)
+        return jsonify({
+            "success": False,
+            "error": "Unable to calculate database statistics"
+        }), 500
