@@ -1,16 +1,19 @@
 package com.imran.receptionist.call
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.telecom.PhoneAccountHandle
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
-import android.util.Log
+import androidx.core.content.ContextCompat
+import com.imran.receptionist.diagnostics.DiagnosticLogger
 
 object SimResolver {
 
     /**
-     * Returns human SIM slot:
+     * Returns:
      * 1 = SIM 1
      * 2 = SIM 2
      * null = cannot safely determine
@@ -20,46 +23,199 @@ object SimResolver {
         accountHandle: PhoneAccountHandle?
     ): Int? {
 
-        if (accountHandle == null) return null
-
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            Log.w("ImranAI", "Reliable SIM mapping requires Android 11+")
+        if (accountHandle == null) {
+            DiagnosticLogger.log(
+                context,
+                "SIM_DEBUG",
+                "PhoneAccountHandle = NULL"
+            )
             return null
         }
 
-        return try {
-            val telephony =
-                context.getSystemService(TelephonyManager::class.java)
+        val accountId = accountHandle.id
 
-            val subscriptionId =
-                telephony.getSubscriptionId(accountHandle)
+        DiagnosticLogger.log(
+            context,
+            "SIM_DEBUG",
+            "PhoneAccountHandle.id = $accountId"
+        )
 
-            if (
-                subscriptionId ==
-                SubscriptionManager.INVALID_SUBSCRIPTION_ID
-            ) {
-                Log.w("ImranAI", "Invalid subscription ID")
-                null
-            } else {
-                val zeroBasedSlot =
-                    SubscriptionManager.getSlotIndex(subscriptionId)
+        if (
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_PHONE_STATE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            DiagnosticLogger.log(
+                context,
+                "SIM_DEBUG",
+                "READ_PHONE_STATE not granted"
+            )
+            return null
+        }
+
+        /*
+         * METHOD 1
+         * Android 11+ official PhoneAccountHandle ->
+         * subscription mapping.
+         */
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+
+            try {
+                val telephony =
+                    context.getSystemService(
+                        TelephonyManager::class.java
+                    )
+
+                val subscriptionId =
+                    telephony.getSubscriptionId(
+                        accountHandle
+                    )
+
+                DiagnosticLogger.log(
+                    context,
+                    "SIM_DEBUG",
+                    "Telephony subscriptionId = $subscriptionId"
+                )
 
                 if (
-                    zeroBasedSlot ==
-                    SubscriptionManager.INVALID_SIM_SLOT_INDEX
+                    subscriptionId !=
+                    SubscriptionManager.INVALID_SUBSCRIPTION_ID
                 ) {
-                    null
-                } else {
-                    zeroBasedSlot + 1
+
+                    val slotIndex =
+                        SubscriptionManager.getSlotIndex(
+                            subscriptionId
+                        )
+
+                    DiagnosticLogger.log(
+                        context,
+                        "SIM_DEBUG",
+                        "Method1 slotIndex = $slotIndex"
+                    )
+
+                    if (
+                        slotIndex !=
+                        SubscriptionManager.INVALID_SIM_SLOT_INDEX
+                    ) {
+                        return slotIndex + 1
+                    }
+                }
+
+            } catch (e: Exception) {
+
+                DiagnosticLogger.log(
+                    context,
+                    "SIM_DEBUG",
+                    "Method1 failed: ${e.javaClass.simpleName}: ${e.message}"
+                )
+            }
+        }
+
+        /*
+         * METHOD 2
+         *
+         * Inspect active subscriptions.
+         * We DON'T guess yet.
+         *
+         * This tells us exactly what this phone exposes,
+         * so the next resolver can safely match SIM1/SIM2.
+         */
+        try {
+
+            val manager =
+                context.getSystemService(
+                    SubscriptionManager::class.java
+                )
+
+            val subscriptions =
+                manager.activeSubscriptionInfoList
+
+            if (subscriptions.isNullOrEmpty()) {
+
+                DiagnosticLogger.log(
+                    context,
+                    "SIM_DEBUG",
+                    "Active subscription list is EMPTY"
+                )
+
+                return null
+            }
+
+            DiagnosticLogger.log(
+                context,
+                "SIM_DEBUG",
+                "Active subscriptions = ${subscriptions.size}"
+            )
+
+            subscriptions.forEach { info ->
+
+                DiagnosticLogger.log(
+                    context,
+                    "SIM_DEBUG",
+                    "subId=${info.subscriptionId}, " +
+                        "slotIndex=${info.simSlotIndex}, " +
+                        "carrier=${info.carrierName}, " +
+                        "display=${info.displayName}"
+                )
+            }
+
+            /*
+             * Some Android/OEM implementations expose the
+             * subscription ID directly as PhoneAccountHandle.id.
+             */
+            val numericAccountId =
+                accountId.toIntOrNull()
+
+            if (numericAccountId != null) {
+
+                val match =
+                    subscriptions.firstOrNull {
+                        it.subscriptionId ==
+                            numericAccountId
+                    }
+
+                if (match != null) {
+
+                    val slot =
+                        match.simSlotIndex + 1
+
+                    DiagnosticLogger.log(
+                        context,
+                        "SIM_DEBUG",
+                        "Method2 exact subscription match -> SIM $slot"
+                    )
+
+                    return slot
                 }
             }
 
+            /*
+             * Do NOT infer SIM1 merely because mapping failed.
+             */
+            DiagnosticLogger.log(
+                context,
+                "SIM_DEBUG",
+                "No safe account-to-subscription match"
+            )
+
         } catch (e: SecurityException) {
-            Log.e("ImranAI", "SIM permission missing", e)
-            null
+
+            DiagnosticLogger.log(
+                context,
+                "SIM_DEBUG",
+                "Subscription permission error: ${e.message}"
+            )
+
         } catch (e: Exception) {
-            Log.e("ImranAI", "SIM resolution failed", e)
-            null
+
+            DiagnosticLogger.log(
+                context,
+                "SIM_DEBUG",
+                "Subscription inspection failed: ${e.javaClass.simpleName}: ${e.message}"
+            )
         }
+
+        return null
     }
 }
