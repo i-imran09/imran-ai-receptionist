@@ -41,6 +41,14 @@ data class ConversationItem(
     val messages: List<ConversationMessage>
 )
 
+data class ConversationDetailResponse(
+    val success: Boolean,
+    val phone_number: String,
+    val caller_name: String?,
+    val message_count: Int,
+    val messages: List<ConversationMessage>
+)
+
 data class ConversationsResponse(
     val success: Boolean,
     val caller_count: Int,
@@ -73,6 +81,11 @@ interface ApiService {
     @GET("api/conversations")
     suspend fun getConversations():
         retrofit2.Response<ConversationsResponse>
+
+    @GET("api/conversations/{phoneNumber}")
+    suspend fun getConversation(
+        @Path("phoneNumber") phoneNumber: String
+    ): retrofit2.Response<ConversationDetailResponse>
 
     @GET("api/database/stats")
     suspend fun getDatabaseStats():
@@ -113,8 +126,20 @@ interface ApiService {
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build()
 
+            val configuredUrl = BuildConfig.BACKEND_URL.trim()
+
+            val backendUrl = (
+                if (configuredUrl.isBlank()) {
+                    "https://imran-ai-receptionist-ai-webhook.onrender.com/"
+                } else {
+                    configuredUrl
+                }
+            ).let { url ->
+                if (url.endsWith("/")) url else "$url/"
+            }
+
             return Retrofit.Builder()
-                .baseUrl(BuildConfig.BACKEND_URL)
+                .baseUrl(backendUrl)
                 .client(client)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()

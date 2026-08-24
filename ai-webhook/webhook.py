@@ -985,3 +985,59 @@ def api_clear_conversations():
             "success": False,
             "error": "Unable to clear conversations"
         }), 500
+
+@app.get("/api/conversations/<phone_number>")
+def api_single_conversation(phone_number):
+    if not require_app_client():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return jsonify({"error": "Database unavailable"}), 503
+
+    try:
+        profile_response = requests.get(
+            SUPABASE_URL.rstrip("/") + "/rest/v1/caller_profiles",
+            headers=supabase_headers(),
+            params={
+                "phone_number": f"eq.{phone_number}",
+                "select": "phone_number,caller_name",
+                "limit": "1"
+            },
+            timeout=20
+        )
+        profile_response.raise_for_status()
+
+        profiles = profile_response.json()
+        caller_name = (
+            profiles[0].get("caller_name")
+            if profiles else None
+        )
+
+        message_response = requests.get(
+            SUPABASE_URL.rstrip("/") + "/rest/v1/conversations",
+            headers=supabase_headers(),
+            params={
+                "phone_number": f"eq.{phone_number}",
+                "select": "role,message,imran_status,created_at",
+                "order": "created_at.asc"
+            },
+            timeout=20
+        )
+        message_response.raise_for_status()
+
+        messages = message_response.json()
+
+        return jsonify({
+            "success": True,
+            "phone_number": phone_number,
+            "caller_name": caller_name,
+            "message_count": len(messages),
+            "messages": messages
+        }), 200
+
+    except Exception as e:
+        print("SINGLE CONVERSATION ERROR:", repr(e), flush=True)
+        return jsonify({
+            "success": False,
+            "error": "Unable to load conversation"
+        }), 500
