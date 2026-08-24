@@ -48,20 +48,23 @@ class CallScreeningService : CallScreeningService() {
             "Resolved SIM slot = ${simSlot ?: "UNKNOWN"}"
         )
 
-        if (simSlot != 1) {
+        if (simSlot == 2) {
             DiagnosticLogger.log(
                 applicationContext,
                 "SIM_FILTER",
-                "Call ignored because it is not confirmed SIM 1"
-            )
-
-            Log.i(
-                "ImranAI",
-                "Call ignored: SIM slot=$simSlot number=$normalized"
+                "Confirmed SIM 2 call ignored"
             )
             return
         }
 
+        /*
+         * SIM may be UNKNOWN on some Android/OEM phones because
+         * CallScreeningService can return a null PhoneAccountHandle.
+         *
+         * Do not send anything yet.
+         * Preserve the call temporarily so CallStateReceiver can inspect
+         * the final CallLog row after the call ends.
+         */
         PendingCallStore.save(
             applicationContext,
             PendingIncomingCall(
@@ -70,14 +73,17 @@ class CallScreeningService : CallScreeningService() {
                     details.accountHandle?.id,
                 startedAt =
                     System.currentTimeMillis(),
-                simSlot = 1
+                simSlot = simSlot ?: -1
             )
         )
 
         DiagnosticLogger.log(
             applicationContext,
             "PENDING",
-            "SIM 1 incoming call saved for final-result check"
+            if (simSlot == 1)
+                "Confirmed SIM 1 call saved for final-result check"
+            else
+                "SIM unknown at screening; saved for CallLog SIM verification"
         )
 
         Log.i(

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.CallLog
 import android.telephony.TelephonyManager
+import android.telephony.SubscriptionManager
 import android.util.Log
 import com.imran.receptionist.contacts.ContactChecker
 import com.imran.receptionist.diagnostics.DiagnosticLogger
@@ -111,7 +112,63 @@ class CallStateReceiver : BroadcastReceiver() {
             "Final result = ${finalResult.result}"
         )
 
+        DiagnosticLogger.log(
+            context,
+            "SIM_CALLLOG",
+            "PHONE_ACCOUNT_ID = ${finalResult.phoneAccountId ?: "NULL"}"
+        )
+
+        try {
+            val subscriptionManager =
+                context.getSystemService(
+                    SubscriptionManager::class.java
+                )
+
+            val active =
+                subscriptionManager.activeSubscriptionInfoList
+
+            if (active.isNullOrEmpty()) {
+                DiagnosticLogger.log(
+                    context,
+                    "SIM_CALLLOG",
+                    "Active subscription list is EMPTY"
+                )
+            } else {
+                active.forEach { info ->
+                    DiagnosticLogger.log(
+                        context,
+                        "SIM_CALLLOG",
+                        "subId=${info.subscriptionId}, " +
+                            "slot=${info.simSlotIndex + 1}, " +
+                            "carrier=${info.carrierName}, " +
+                            "display=${info.displayName}"
+                    )
+                }
+            }
+
+        } catch (e: Exception) {
+            DiagnosticLogger.log(
+                context,
+                "SIM_CALLLOG",
+                "Subscription inspection failed: " +
+                    e.javaClass.simpleName +
+                    ": " +
+                    (e.message ?: "Unknown")
+            )
+        }
+
         PendingCallStore.clear(context)
+
+        if (pending.simSlot != 1) {
+            DiagnosticLogger.log(
+                context,
+                "SIM_VERIFY",
+                "SIM was not confirmed as SIM 1. Follow-up blocked until CallLog mapping is verified."
+            )
+
+            PendingCallStore.clear(context)
+            return
+        }
 
         when (finalResult.result) {
 
@@ -270,7 +327,8 @@ class CallStateReceiver : BroadcastReceiver() {
                     return FinalCallResult(
                         rawNumber = rawNumber,
                         timestamp = timestamp,
-                        result = result
+                        result = result,
+                        phoneAccountId = accountId
                     )
                 }
 
@@ -298,7 +356,8 @@ class CallStateReceiver : BroadcastReceiver() {
     data class FinalCallResult(
         val rawNumber: String,
         val timestamp: Long,
-        val result: String
+        val result: String,
+        val phoneAccountId: String?
     )
 
     companion object {
