@@ -20,8 +20,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var statusRepository: StatusRepository
 
-    private val contactsPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { refreshReadyState() }
+    private val requiredPermissions =
+        registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) {
+            refreshReadyState()
+        }
 
     private val roleLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { refreshReadyState() }
@@ -115,25 +119,80 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch { statusRepository.setStatus(value) }
 
     private fun startSetup() {
-        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
-            contactsPermission.launch(Manifest.permission.READ_CONTACTS)
+
+        val permissions = arrayOf(
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_PHONE_STATE
+        )
+
+        val missing =
+            permissions.filter {
+                checkSelfPermission(it) !=
+                    PackageManager.PERMISSION_GRANTED
+            }
+
+        if (missing.isNotEmpty()) {
+            requiredPermissions.launch(
+                missing.toTypedArray()
+            )
             return
         }
-        val rm = getSystemService(RoleManager::class.java)
-        if (rm.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) &&
-            !rm.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
-            roleLauncher.launch(rm.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING))
+
+        val rm =
+            getSystemService(
+                RoleManager::class.java
+            )
+
+        if (
+            rm.isRoleAvailable(
+                RoleManager.ROLE_CALL_SCREENING
+            ) &&
+            !rm.isRoleHeld(
+                RoleManager.ROLE_CALL_SCREENING
+            )
+        ) {
+            roleLauncher.launch(
+                rm.createRequestRoleIntent(
+                    RoleManager.ROLE_CALL_SCREENING
+                )
+            )
             return
         }
+
         refreshReadyState()
     }
 
     private fun refreshReadyState() {
-        val contactOk = checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
-        val rm = getSystemService(RoleManager::class.java)
-        val roleOk = rm.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) && rm.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)
-        binding.tvSetup.text = if (contactOk && roleOk) "AI Receptionist Ready ✓"
-        else "Setup required: tap Enable AI Receptionist"
+        val permissionsOk =
+            checkSelfPermission(
+                Manifest.permission.READ_CONTACTS
+            ) == PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(
+                Manifest.permission.READ_CALL_LOG
+            ) == PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(
+                Manifest.permission.READ_PHONE_STATE
+            ) == PackageManager.PERMISSION_GRANTED
+
+        val rm =
+            getSystemService(
+                RoleManager::class.java
+            )
+
+        val roleOk =
+            rm.isRoleAvailable(
+                RoleManager.ROLE_CALL_SCREENING
+            ) &&
+            rm.isRoleHeld(
+                RoleManager.ROLE_CALL_SCREENING
+            )
+
+        binding.tvSetup.text =
+            if (permissionsOk && roleOk)
+                "AI Receptionist Ready ✓"
+            else
+                "Setup required: tap Enable AI Receptionist"
     }
 
     override fun onResume() {

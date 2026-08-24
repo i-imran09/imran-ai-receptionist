@@ -553,6 +553,136 @@ The latest caller message has the strongest priority for language style.
         print("GROQ ERROR:", repr(e), flush=True)
         return "Sorry bro, konjam technical issue iruku. Konjam neram kalichu try pannunga."
 
+
+def send_whatsapp_template(
+    to_number,
+    template_name="imran_call_followup",
+    language_code="en"
+):
+    if not ACCESS_TOKEN:
+        print("WHATSAPP_TOKEN is not set", flush=True)
+        return False, None
+
+    url = (
+        f"https://graph.facebook.com/v26.0/"
+        f"{PHONE_NUMBER_ID}/messages"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {
+                "code": language_code
+            }
+        }
+    }
+
+    try:
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=20
+        )
+
+        print(
+            "TEMPLATE SEND RESPONSE:",
+            response.status_code,
+            response.text,
+            flush=True
+        )
+
+        if not response.ok:
+            return False, None
+
+        data = response.json()
+
+        message_id = None
+
+        messages = data.get("messages") or []
+
+        if messages:
+            message_id = messages[0].get("id")
+
+        return True, message_id
+
+    except Exception as e:
+        print(
+            "TEMPLATE SEND ERROR:",
+            repr(e),
+            flush=True
+        )
+        return False, None
+
+
+def save_contact_display_name(
+    phone_number,
+    contact_display_name
+):
+    if (
+        not SUPABASE_URL or
+        not SUPABASE_KEY or
+        not contact_display_name
+    ):
+        return False
+
+    name = contact_display_name.strip()
+
+    if not name:
+        return False
+
+    try:
+        url = (
+            SUPABASE_URL.rstrip("/") +
+            "/rest/v1/caller_profiles"
+        )
+
+        headers = supabase_headers().copy()
+        headers["Prefer"] = "resolution=merge-duplicates"
+
+        payload = {
+            "phone_number": phone_number,
+            "contact_display_name": name,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+
+        r = requests.post(
+            url,
+            headers=headers,
+            params={
+                "on_conflict": "phone_number"
+            },
+            json=payload,
+            timeout=20
+        )
+
+        r.raise_for_status()
+
+        print(
+            f"CONTACT DISPLAY NAME SAVED: "
+            f"{phone_number} -> {name}",
+            flush=True
+        )
+
+        return True
+
+    except Exception as e:
+        print(
+            "CONTACT DISPLAY NAME SAVE ERROR:",
+            repr(e),
+            flush=True
+        )
+        return False
+
+
 def send_whatsapp_text(to_number, message):
     if not ACCESS_TOKEN:
         print("WHATSAPP_TOKEN is not set", flush=True)
@@ -1041,3 +1171,114 @@ def api_single_conversation(phone_number):
             "success": False,
             "error": "Unable to load conversation"
         }), 500
+
+@app.post("/call-followup")
+def call_followup():
+
+    if not require_app_client():
+        return jsonify({
+            "success": False,
+            "error": "Unauthorized"
+        }), 401
+
+    data = request.get_json(silent=True) or {}
+
+    caller_number = str(
+        data.get("callerNumber") or ""
+    ).strip()
+
+    current_status = str(
+        data.get("currentStatus") or "Work"
+    ).strip()
+
+    event_id = str(
+        data.get("eventId") or ""
+    ).strip()
+
+    call_timestamp = data.get("callTimestamp")
+
+    contact_display_name = (
+        data.get("contactDisplayName")
+    )
+
+    call_result = str(
+        data.get("callResult") or ""
+    ).upper()
+
+    try:
+        sim_slot = int(
+            data.get("simSlot", 0)
+        )
+    except Exception:
+        sim_slot = 0
+
+    # Backend safety check too.
+    if sim_slot != 1:
+        return jsonify({
+            "success": False,
+            "error": "SIM 1 only"
+        }), 400
+
+    if call_result not in (
+        "MISSED",
+        "REJECTED"
+    ):
+        return jsonify({
+            "success": False,
+            "error": "Only missed/rejected calls allowed"
+        }), 400
+
+    normalized = "".join(
+        ch for ch in caller_number
+        if ch.isdigit()
+    )
+
+    if len(normalized) < 10:
+        return jsonify({
+            "success": False,
+            "error": "Invalid caller number"
+        }), 400
+
+    # Saved Android contact name is only a hint.
+    # Never overwrite caller_name (actual/preferred name).
+    if contact_display_name:
+        save_contact_display_name(
+            normalized,
+            contact_display_name
+        )
+
+    sent, message_id = (
+        send_whatsapp_template(
+            normalized,
+            template_name="imran_call_followup",
+            language_code="en"
+        )
+    )
+
+    print(
+        "CALL FOLLOWUP:",
+        {
+            "number": normalized,
+            "result": call_result,
+            "sim": sim_slot,
+            "contact": contact_display_name,
+            "status": current_status,
+            "event_id": event_id,
+            "template_sent": sent
+        },
+        flush=True
+    )
+
+    if not sent:
+        return jsonify({
+            "success": False,
+            "error": "Template send failed"
+        }), 502
+
+    return jsonify({
+        "success": True,
+        "conversationId": normalized,
+        "messageId": message_id,
+        "eventId": event_id,
+        "callTimestamp": call_timestamp
+    }), 200

@@ -16,7 +16,10 @@ data class CallFollowupRequest(
     val callerNumber: String,
     val currentStatus: String,
     val eventId: String,
-    val callTimestamp: Long
+    val callTimestamp: Long,
+    val contactDisplayName: String? = null,
+    val callResult: String? = null,
+    val simSlot: Int = 1
 )
 
 data class CallFollowupResponse(
