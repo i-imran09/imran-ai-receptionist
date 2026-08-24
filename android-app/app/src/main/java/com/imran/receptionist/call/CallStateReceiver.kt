@@ -7,6 +7,7 @@ import android.provider.CallLog
 import android.telephony.TelephonyManager
 import android.util.Log
 import com.imran.receptionist.contacts.ContactChecker
+import com.imran.receptionist.diagnostics.DiagnosticLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,9 +36,23 @@ class CallStateReceiver : BroadcastReceiver() {
             return
         }
 
+        DiagnosticLogger.log(
+            context,
+            "CALL_END",
+            "Phone state became IDLE"
+        )
+
         val pending =
             PendingCallStore.get(context)
-                ?: return
+
+        if (pending == null) {
+            DiagnosticLogger.log(
+                context,
+                "PENDING",
+                "No pending SIM 1 call found"
+            )
+            return
+        }
 
         val appContext =
             context.applicationContext
@@ -75,13 +90,26 @@ class CallStateReceiver : BroadcastReceiver() {
         }
 
         if (finalResult == null) {
+            DiagnosticLogger.log(
+                context,
+                "CALL_LOG",
+                "No matching call-log entry found"
+            )
+
             Log.w(
                 "ImranAI",
                 "No matching CallLog row found"
             )
+
             PendingCallStore.clear(context)
             return
         }
+
+        DiagnosticLogger.log(
+            context,
+            "CALL_LOG",
+            "Final result = ${finalResult.result}"
+        )
 
         PendingCallStore.clear(context)
 
@@ -95,6 +123,15 @@ class CallStateReceiver : BroadcastReceiver() {
                         .getContactName(
                             finalResult.rawNumber
                         )
+
+                DiagnosticLogger.log(
+                    context,
+                    "CONTACT",
+                    if (contactName.isNullOrBlank())
+                        "Caller is not saved in contacts"
+                    else
+                        "Saved contact name found"
+                )
 
                 CallProcessor.processFinal(
                     context = context,
@@ -112,6 +149,12 @@ class CallStateReceiver : BroadcastReceiver() {
             }
 
             else -> {
+                DiagnosticLogger.log(
+                    context,
+                    "CALL_FILTER",
+                    "No follow-up: result=${finalResult.result}"
+                )
+
                 Log.i(
                     "ImranAI",
                     "Answered/non-target call ignored: " +

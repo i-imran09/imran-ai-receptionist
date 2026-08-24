@@ -11,6 +11,11 @@
         android:theme="@style/Theme.ImranReceptionist">
 
         <activity
+            android:name=".diagnostics.DiagnosticsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".databaseui.DatabaseActivity"
             android:exported="false"
             android:screenOrientation="portrait" />

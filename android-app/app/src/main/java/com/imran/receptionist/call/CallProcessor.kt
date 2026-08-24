@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.imran.receptionist.database.CallDatabase
 import com.imran.receptionist.database.CallHistoryEntity
+import com.imran.receptionist.diagnostics.DiagnosticLogger
 import com.imran.receptionist.network.ApiService
 import com.imran.receptionist.network.CallFollowupRequest
 import com.imran.receptionist.status.StatusRepository
@@ -53,6 +54,12 @@ object CallProcessor {
         val previousCount =
             dao.countCalls(number)
 
+        DiagnosticLogger.log(
+            context,
+            "PROCESSOR",
+            "Eligible $callResult call accepted for processing"
+        )
+
         dao.insert(
             CallHistoryEntity(
                 callerNumber = number,
@@ -87,6 +94,12 @@ object CallProcessor {
         }
 
         try {
+            DiagnosticLogger.log(
+                context,
+                "BACKEND",
+                "Sending follow-up request to cloud backend"
+            )
+
             val response =
                 ApiService.create().reportCall(
                     CallFollowupRequest(
@@ -104,8 +117,20 @@ object CallProcessor {
                     )
                 )
 
+            DiagnosticLogger.log(
+                context,
+                "BACKEND",
+                "HTTP ${response.code()}"
+            )
+
             if (response.isSuccessful) {
                 dao.markTemplateSent(eventId)
+
+                DiagnosticLogger.log(
+                    context,
+                    "TEMPLATE",
+                    "WhatsApp follow-up accepted"
+                )
 
                 Log.i(
                     "ImranAI",
@@ -119,6 +144,14 @@ object CallProcessor {
             }
 
         } catch (e: Exception) {
+            DiagnosticLogger.log(
+                context,
+                "BACKEND_ERROR",
+                e.javaClass.simpleName +
+                    ": " +
+                    (e.message ?: "Unknown error")
+            )
+
             Log.e(
                 "ImranAI",
                 "Backend call failed",

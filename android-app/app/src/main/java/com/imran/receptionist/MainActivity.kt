@@ -102,6 +102,15 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        binding.btnDiagnostics.setOnClickListener {
+            startActivity(
+                Intent(
+                    this,
+                    com.imran.receptionist.diagnostics.DiagnosticsActivity::class.java
+                )
+            )
+        }
+
         lifecycleScope.launch {
             statusRepository.currentStatus.collect {
                 binding.tvCurrentStatus.text = it

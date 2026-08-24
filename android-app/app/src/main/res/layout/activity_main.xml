@@ -161,6 +161,18 @@
             android:textSize="16sp"
             app:cornerRadius="14dp" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_diagnostics"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="10dp"
+            android:gravity="start|center_vertical"
+            android:text="  Diagnostics"
+            android:textAllCaps="false"
+            android:textSize="16sp"
+            app:cornerRadius="14dp" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
