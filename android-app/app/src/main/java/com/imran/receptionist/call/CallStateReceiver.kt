@@ -43,23 +43,30 @@ class CallStateReceiver : BroadcastReceiver() {
             "Phone state became IDLE"
         )
 
-        val pending =
-            PendingCallStore.get(context)
-
-        if (pending == null) {
-            DiagnosticLogger.log(
-                context,
-                "PENDING",
-                "No pending SIM 1 call found"
-            )
-            return
-        }
-
         val appContext =
             context.applicationContext
 
         scope.launch {
             mutex.withLock {
+
+                /*
+                 * Read pending INSIDE the mutex.
+                 * Some dual-SIM phones send duplicate IDLE broadcasts.
+                 * This prevents both broadcasts from processing the
+                 * same pending call.
+                 */
+                val pending =
+                    PendingCallStore.get(appContext)
+
+                if (pending == null) {
+                    DiagnosticLogger.log(
+                        appContext,
+                        "PENDING",
+                        "No pending call found"
+                    )
+                    return@withLock
+                }
+
                 finalizeCall(
                     appContext,
                     pending
@@ -157,16 +164,45 @@ class CallStateReceiver : BroadcastReceiver() {
             )
         }
 
+        /*
+         * Prefer the SIM slot already known during ringing.
+         * If CallScreeningService could not provide it, resolve it
+         * from the final CallLog PHONE_ACCOUNT_ID.
+         */
+        val resolvedSimSlot =
+            if (pending.simSlot == 1 || pending.simSlot == 2) {
+                pending.simSlot
+            } else {
+                SimResolver.resolveFromCallLogAccountId(
+                    context,
+                    finalResult.phoneAccountId
+                )
+            }
+
+        DiagnosticLogger.log(
+            context,
+            "SIM_VERIFY",
+            "Final resolved SIM slot = ${resolvedSimSlot ?: "UNKNOWN"}"
+        )
+
+        /*
+         * Claim/clear this pending event before any network work.
+         * A duplicate PHONE_STATE IDLE broadcast can no longer
+         * process the same call twice.
+         */
         PendingCallStore.clear(context)
 
-        if (pending.simSlot != 1) {
+        if (resolvedSimSlot != 1) {
+
             DiagnosticLogger.log(
                 context,
-                "SIM_VERIFY",
-                "SIM was not confirmed as SIM 1. Follow-up blocked until CallLog mapping is verified."
+                "SIM_FILTER",
+                if (resolvedSimSlot == 2)
+                    "Confirmed SIM 2 call ignored"
+                else
+                    "SIM could not be safely confirmed; follow-up blocked"
             )
 
-            PendingCallStore.clear(context)
             return
         }
 
@@ -199,7 +235,7 @@ class CallStateReceiver : BroadcastReceiver() {
                     callResult =
                         finalResult.result,
                     simSlot =
-                        pending.simSlot,
+                        resolvedSimSlot,
                     callTimestamp =
                         finalResult.timestamp
                 )
