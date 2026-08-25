@@ -20,6 +20,81 @@ PHONE_NUMBER_ID = "1193220090549290"
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
+
+def run_supabase_startup_diagnostic():
+    """Temporary safe diagnostic for Render/Supabase auth."""
+    print("===== SUPABASE STARTUP DIAGNOSTIC =====", flush=True)
+
+    url = (SUPABASE_URL or "").rstrip("/")
+    key = SUPABASE_KEY or ""
+
+    print("SUPABASE URL LOADED:", bool(url), flush=True)
+    print("SUPABASE KEY LOADED:", bool(key), flush=True)
+    print(
+        "SUPABASE KEY TYPE:",
+        "sb_secret" if key.startswith("sb_secret_") else "other",
+        flush=True
+    )
+
+    if not url or not key:
+        print("DIAGNOSTIC STOP: missing environment value", flush=True)
+        print("===== DIAGNOSTIC END =====", flush=True)
+        return
+
+    headers = {
+        "apikey": key,
+        "Content-Type": "application/json",
+    }
+
+    tests = [
+        ("REST_ROOT", "/rest/v1/"),
+        (
+            "CALLER_STATE",
+            "/rest/v1/caller_state"
+            "?select=phone_number&limit=1"
+        ),
+        (
+            "CONVERSATIONS",
+            "/rest/v1/conversations"
+            "?select=phone_number&limit=1"
+        ),
+    ]
+
+    for name, path in tests:
+        try:
+            response = requests.get(
+                url + path,
+                headers=headers,
+                timeout=15
+            )
+
+            print(
+                f"SUPABASE TEST {name}: HTTP {response.status_code}",
+                flush=True
+            )
+
+            if not response.ok:
+                body = (response.text or "").replace("\n", " ")
+                print(
+                    f"SUPABASE TEST {name} ERROR BODY:",
+                    body[:300],
+                    flush=True
+                )
+
+        except Exception as exc:
+            print(
+                f"SUPABASE TEST {name} EXCEPTION:",
+                type(exc).__name__,
+                str(exc)[:200],
+                flush=True
+            )
+
+    print("===== DIAGNOSTIC END =====", flush=True)
+
+
+run_supabase_startup_diagnostic()
+
+
 def supabase_headers():
     return {
         "apikey": SUPABASE_KEY,
