@@ -5,6 +5,7 @@ import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Build
 import android.provider.Settings
 import android.widget.ArrayAdapter
 import android.widget.AdapterView
@@ -14,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.imran.receptionist.databinding.ActivityMainBinding
 import com.imran.receptionist.status.StatusRepository
+import com.imran.receptionist.reminder.ReminderSyncManager
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -129,12 +131,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun startSetup() {
 
-        val permissions = arrayOf(
-            Manifest.permission.READ_CONTACTS,
-            Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_PHONE_STATE,
-            Manifest.permission.SEND_SMS
-        )
+        val permissions =
+            buildList {
+                add(Manifest.permission.READ_CONTACTS)
+                add(Manifest.permission.READ_CALL_LOG)
+                add(Manifest.permission.READ_PHONE_STATE)
+                add(Manifest.permission.SEND_SMS)
+
+                if (
+                    Build.VERSION.SDK_INT >=
+                    Build.VERSION_CODES.TIRAMISU
+                ) {
+                    add(
+                        Manifest.permission.POST_NOTIFICATIONS
+                    )
+                }
+            }.toTypedArray()
 
         val missing =
             permissions.filter {
@@ -174,6 +186,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshReadyState() {
+        val notificationOk =
+            Build.VERSION.SDK_INT <
+                Build.VERSION_CODES.TIRAMISU ||
+            checkSelfPermission(
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
         val permissionsOk =
             checkSelfPermission(
                 Manifest.permission.READ_CONTACTS
@@ -186,7 +205,8 @@ class MainActivity : AppCompatActivity() {
             ) == PackageManager.PERMISSION_GRANTED &&
             checkSelfPermission(
                 Manifest.permission.SEND_SMS
-            ) == PackageManager.PERMISSION_GRANTED
+            ) == PackageManager.PERMISSION_GRANTED &&
+            notificationOk
 
         val rm =
             getSystemService(
@@ -211,5 +231,11 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshReadyState()
+
+        lifecycleScope.launch {
+            ReminderSyncManager.sync(
+                applicationContext
+            )
+        }
     }
 }

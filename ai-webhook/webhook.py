@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import os
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 app = Flask(__name__)
 
@@ -211,6 +212,132 @@ def save_caller_name(phone_number, caller_name):
 
 
 
+
+def get_caller_state(phone_number):
+    """Load structured receptionist state for one caller."""
+
+    default_state = {
+        "language_preference": None,
+        "caller_reason": None,
+        "callback_requested": False,
+        "callback_time": None,
+        "emergency": False,
+        "emergency_reason": None,
+    }
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return default_state
+
+    try:
+        url = (
+            SUPABASE_URL.rstrip("/")
+            + "/rest/v1/caller_state"
+        )
+
+        r = requests.get(
+            url,
+            headers=supabase_headers(),
+            params={
+                "phone_number": f"eq.{phone_number}",
+                "select": (
+                    "language_preference,"
+                    "caller_reason,"
+                    "callback_requested,"
+                    "callback_time,"
+                    "emergency,"
+                    "emergency_reason"
+                ),
+                "limit": "1",
+            },
+            timeout=20
+        )
+
+        r.raise_for_status()
+        rows = r.json()
+
+        if not rows:
+            return default_state
+
+        state = default_state.copy()
+        state.update(rows[0])
+
+        return state
+
+    except Exception as e:
+        print(
+            "CALLER STATE LOAD ERROR:",
+            repr(e),
+            flush=True
+        )
+        return default_state
+
+
+def save_caller_state(phone_number, **updates):
+    """Create/update only validated caller-state fields."""
+
+    allowed = {
+        "language_preference",
+        "caller_reason",
+        "callback_requested",
+        "callback_time",
+        "emergency",
+        "emergency_reason",
+    }
+
+    payload = {
+        key: value
+        for key, value in updates.items()
+        if key in allowed
+    }
+
+    if not payload:
+        return False
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return False
+
+    payload["phone_number"] = phone_number
+    payload["updated_at"] = datetime.utcnow().isoformat()
+
+    try:
+        url = (
+            SUPABASE_URL.rstrip("/")
+            + "/rest/v1/caller_state"
+        )
+
+        headers = supabase_headers().copy()
+        headers["Prefer"] = "resolution=merge-duplicates"
+
+        r = requests.post(
+            url,
+            headers=headers,
+            params={
+                "on_conflict": "phone_number"
+            },
+            json=payload,
+            timeout=20
+        )
+
+        r.raise_for_status()
+
+        print(
+            "CALLER STATE SAVED:",
+            phone_number,
+            payload,
+            flush=True
+        )
+
+        return True
+
+    except Exception as e:
+        print(
+            "CALLER STATE SAVE ERROR:",
+            repr(e),
+            flush=True
+        )
+        return False
+
+
 def looks_like_name(text):
     """
     Conservative name detector.
@@ -290,12 +417,362 @@ def previous_ai_asked_name(phone_number):
 
     return False
 
+
+def analyze_caller_message(
+    user_message,
+    sender="unknown"
+):
+    """
+    Extract structured receptionist state from the caller message.
+
+    This function does NOT generate the conversational reply.
+    It only extracts validated state such as:
+    language, reason, callback request/time and emergencies.
+    """
+
+    if not GROQ_API_KEY:
+        return {}
+
+    existing_state = get_caller_state(sender)
+    caller_name = get_caller_name(sender)
+
+    history = load_conversation_history(
+        sender,
+        limit=20
+    )
+
+    now_ist = datetime.now(
+        ZoneInfo("Asia/Kolkata")
+    )
+
+    history_text = []
+
+    for item in history[-12:]:
+        role = item.get("role", "")
+        content = item.get("content", "")
+
+        if content:
+            history_text.append(
+                f"{role}: {content}"
+            )
+
+    prompt = f"""
+You are a strict information extraction engine for
+Imran's personal AI receptionist.
+
+CURRENT TIME:
+{now_ist.isoformat()}
+
+TIMEZONE:
+Asia/Kolkata
+
+KNOWN CALLER NAME:
+{caller_name or "UNKNOWN"}
+
+EXISTING STATE:
+{json.dumps(existing_state, ensure_ascii=False)}
+
+RECENT CONVERSATION:
+{chr(10).join(history_text)}
+
+LATEST CALLER MESSAGE:
+{user_message}
+
+Return ONLY valid JSON.
+
+Required JSON shape:
+
+{{
+  "language_preference": null,
+  "caller_reason": null,
+  "callback_requested": null,
+  "callback_time": null,
+  "emergency": null,
+  "emergency_reason": null
+}}
+
+RULES:
+
+LANGUAGE:
+- Allowed values:
+  "THANGLISH", "ENGLISH", "TAMIL"
+- If an earlier explicit language preference already exists,
+  preserve it unless the caller explicitly asks to change.
+- Messages such as "hmm", "...", "ok", emoji or "sari"
+  must NOT change the established language.
+- Use null if language cannot be determined safely.
+
+CALLER REASON:
+- Store a concise but specific reason.
+- Capture what the caller needs from Imran.
+- Do NOT store generic text such as:
+  "wants to talk", "needs help", "calling Imran"
+  when the conversation contains a more precise reason.
+- If the reason is still unclear, return null.
+- Never invent details.
+
+CALLBACK REQUEST:
+- true only when the caller actually asks/wants Imran
+  to call or contact them back.
+- false only when they clearly say they do NOT need a callback.
+- Otherwise null.
+
+CALLBACK TIME:
+- Only return a time if the caller actually supplied
+  enough scheduling information.
+- Convert relative expressions using CURRENT TIME.
+Examples:
+  "10 mins" -> current time + 10 minutes
+  "after one hour" -> current time + 1 hour
+  "tomorrow 9 am" -> tomorrow at 09:00
+- Return ISO-8601 including +05:30 offset.
+- If ambiguous, return null.
+- Never invent a callback time.
+
+EMERGENCY:
+- true ONLY for a clearly time-sensitive emergency:
+  accident, urgent medical situation, immediate safety danger,
+  serious family emergency, or similarly immediate danger.
+- The word "urgent" alone is NOT automatically an emergency.
+- false only when context clearly establishes it is not emergency.
+- Otherwise null.
+
+EMERGENCY REASON:
+- Only provide when emergency=true.
+- Use the caller's actual stated emergency reason.
+- Never invent or exaggerate.
+
+Do not include markdown.
+Do not include explanations.
+"""
+
+    try:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": GROQ_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Return strict JSON only. "
+                            "Never invent missing information."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "max_completion_tokens": 350,
+                "temperature": 0
+            },
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+        raw = (
+            response.json()["choices"][0]
+            ["message"]["content"]
+            .strip()
+        )
+
+        # Remove accidental markdown fences.
+        raw = re.sub(
+            r"^```(?:json)?\s*",
+            "",
+            raw,
+            flags=re.IGNORECASE
+        )
+
+        raw = re.sub(
+            r"\s*```$",
+            "",
+            raw
+        ).strip()
+
+        data = json.loads(raw)
+
+        validated = {}
+
+        # ----------------------------------------
+        # LANGUAGE
+        # ----------------------------------------
+
+        language = data.get(
+            "language_preference"
+        )
+
+        if language in (
+            "THANGLISH",
+            "ENGLISH",
+            "TAMIL"
+        ):
+            validated[
+                "language_preference"
+            ] = language
+
+        # ----------------------------------------
+        # REASON
+        # ----------------------------------------
+
+        reason = data.get("caller_reason")
+
+        if isinstance(reason, str):
+            reason = reason.strip()
+
+            if (
+                5 <= len(reason) <= 500
+            ):
+                validated[
+                    "caller_reason"
+                ] = reason
+
+        # ----------------------------------------
+        # CALLBACK REQUEST
+        # ----------------------------------------
+
+        callback_requested = data.get(
+            "callback_requested"
+        )
+
+        if isinstance(
+            callback_requested,
+            bool
+        ):
+            validated[
+                "callback_requested"
+            ] = callback_requested
+
+        # ----------------------------------------
+        # CALLBACK TIME
+        # ----------------------------------------
+
+        callback_time = data.get(
+            "callback_time"
+        )
+
+        if isinstance(callback_time, str):
+            callback_time = callback_time.strip()
+
+            try:
+                parsed = datetime.fromisoformat(
+                    callback_time.replace(
+                        "Z",
+                        "+00:00"
+                    )
+                )
+
+                # Reject timezone-less timestamps.
+                if parsed.tzinfo is not None:
+
+                    # Do not accept obviously old times.
+                    if (
+                        parsed.timestamp()
+                        >= now_ist.timestamp() - 60
+                    ):
+                        validated[
+                            "callback_time"
+                        ] = parsed.isoformat()
+
+            except Exception:
+                pass
+
+        # ----------------------------------------
+        # EMERGENCY
+        # ----------------------------------------
+
+        emergency = data.get("emergency")
+
+        if emergency is True:
+            validated["emergency"] = True
+
+            emergency_reason = data.get(
+                "emergency_reason"
+            )
+
+            if isinstance(
+                emergency_reason,
+                str
+            ):
+                emergency_reason = (
+                    emergency_reason.strip()
+                )
+
+                if (
+                    5 <= len(
+                        emergency_reason
+                    ) <= 500
+                ):
+                    validated[
+                        "emergency_reason"
+                    ] = emergency_reason
+
+        elif emergency is False:
+            # Never automatically clear an existing
+            # emergency from a casual later message.
+            if not existing_state.get(
+                "emergency"
+            ):
+                validated[
+                    "emergency"
+                ] = False
+
+        print(
+            "CALLER STRUCTURED ANALYSIS:",
+            sender,
+            validated,
+            flush=True
+        )
+
+        return validated
+
+    except Exception as e:
+        print(
+            "CALLER ANALYSIS ERROR:",
+            repr(e),
+            flush=True
+        )
+
+        return {}
+
+
+def update_caller_state_from_message(
+    user_message,
+    sender="unknown"
+):
+    """
+    Analyze one message and persist only validated fields.
+    """
+
+    extracted = analyze_caller_message(
+        user_message,
+        sender
+    )
+
+    if not extracted:
+        return get_caller_state(sender)
+
+    save_caller_state(
+        sender,
+        **extracted
+    )
+
+    return get_caller_state(sender)
+
+
+
 def ask_groq(user_message, sender="unknown", status="Work"):
     if not GROQ_API_KEY:
         return "Sorry, AI assistant temporarily unavailable."
 
     # Persistent conversation memory from Supabase
-    history = load_conversation_history(sender, limit=10)
+    history = load_conversation_history(sender, limit=20)
 
     # Always use latest persistent Imran status
     status = get_imran_status(status)
@@ -303,17 +780,44 @@ def ask_groq(user_message, sender="unknown", status="Work"):
     # Load persistent caller identity
     caller_name = get_caller_name(sender)
 
+    # Load structured receptionist state
+    caller_state = get_caller_state(sender)
+
     caller_identity = (
         f"KNOWN CALLER NAME: {caller_name}"
         if caller_name
         else "KNOWN CALLER NAME: UNKNOWN"
     )
 
+    structured_context = f"""
+STRUCTURED CALLER STATE:
+Language preference: {caller_state.get("language_preference") or "UNKNOWN"}
+Known reason: {caller_state.get("caller_reason") or "UNKNOWN"}
+Callback requested: {caller_state.get("callback_requested")}
+Callback time: {caller_state.get("callback_time") or "UNKNOWN"}
+Emergency: {caller_state.get("emergency")}
+Emergency reason: {caller_state.get("emergency_reason") or "UNKNOWN"}
+"""
+
     system_prompt = f"""
 You are Imran's personal AI receptionist on WhatsApp.
 
 CURRENT IMRAN STATUS: {status}
 {caller_identity}
+
+{structured_context}
+
+STRUCTURED STATE RULES:
+
+- Treat STRUCTURED CALLER STATE as already-known verified context.
+- Do not ask again for a reason if Known reason is already specific enough.
+- Do not ask again whether callback is needed if Callback requested is already true.
+- Do not ask again for callback time when Callback time is already known.
+- If Emergency is true, keep the response concise and focused.
+- Never invent new emergency details beyond Emergency reason.
+- If Language preference is THANGLISH, continue in Thanglish even when the latest
+  message is only "hmm", "ok", "...", emoji, or another short acknowledgement.
+- If Language preference is ENGLISH or TAMIL, preserve that preference similarly.
 
 CALLER IDENTITY RULES:
 
@@ -352,6 +856,86 @@ You represent Imran while chatting with people who contact him.
 Your goal is to understand why the caller needs Imran, collect the
 important information naturally, identify urgency, and prepare useful
 context that can later be shown to Imran.
+
+CONVERSATION CONTINUITY — VERY IMPORTANT:
+
+Treat this as one continuing receptionist conversation, not a series of
+independent questions.
+
+LANGUAGE LOCK:
+- If the caller explicitly asked for Thanglish earlier in this conversation,
+  continue in natural Thanglish until they explicitly ask to switch language.
+- Do NOT switch to English just because the latest message is short such as:
+  "hmm", "hm", "ok", "okay", "sari", "...", "👍", "yes", "no".
+- Short acknowledgements inherit the established conversation language.
+- If no language preference has been established, use the caller's latest
+  meaningful message to determine the language.
+
+NO REPETITION:
+- Never repeat a question whose answer is already present in the conversation.
+- Never repeatedly reconfirm a callback time that the caller already gave.
+- Never keep repeating the same summary after "hmm", "okay", "sari", "...".
+- If the caller sends only a low-information acknowledgement and the important
+  details are already clear, answer briefly or naturally close the exchange.
+
+REASON COLLECTION:
+Your job is to understand the caller's ACTUAL reason accurately.
+A useful reason should capture:
+- what they need from Imran
+- the topic/project/person involved
+- the specific action they want from Imran
+
+If the reason is still vague, ask ONE natural follow-up question.
+Do not ask multiple questions in the same reply.
+
+CALLBACK TIME:
+If the caller says they want Imran to call them:
+- Ask when they can be reached ONLY if a callback time is not already known.
+- Accept natural answers such as:
+  "10 mins", "after 1 hour", "today evening", "tomorrow 9 am",
+  "night 8 mani", or an exact date/time.
+- Once a callback time is given, do not ask for it again unless it is genuinely
+  ambiguous.
+
+IMPORTANT:
+The reminder system is handled by the application, not by you.
+Until the application explicitly confirms that a reminder was created,
+NEVER say:
+- "reminder set panniten"
+- "Imran kandippa call pannuvaaru"
+- "Imran 10 mins la call pannuvaaru"
+
+Instead say naturally:
+Thanglish:
+"Sari, note panniten. Imran-ku convey panren."
+
+English:
+"Okay, I've noted that and I'll pass it to Imran."
+
+EMERGENCY AWARENESS:
+If the caller clearly describes an urgent situation such as an accident,
+medical emergency, immediate safety issue, serious family emergency, or another
+time-sensitive danger:
+- Treat it as urgent.
+- Do not invent urgency when the caller has not expressed it.
+- Ask only the minimum useful clarification if absolutely needed.
+- Do not make promises on Imran's behalf.
+
+LOW-INFORMATION MESSAGE EXAMPLES:
+
+Caller: "hmm"
+If the reason/time is already clear:
+Good: "Sari bro, note panniten."
+Bad: Ask the same callback question again.
+
+Caller: "..."
+If nothing new was provided:
+Good: Keep the reply very short or do not restart the conversation.
+Bad: Repeat the entire summary.
+
+Caller previously requested Thanglish, then says: "okay"
+Good: "Sari bro."
+Bad: "Okay. Is there anything else I can help you with?"
 
 LANGUAGE MIRRORING — HIGHEST PRIORITY:
 
@@ -519,7 +1103,8 @@ The latest caller message has the strongest priority for language style.
             json={
                 "model": GROQ_MODEL,
                 "messages": messages,
-                "max_completion_tokens": 180
+                "max_completion_tokens": 220,
+                "temperature": 0.35
             },
             timeout=30
         )
@@ -532,6 +1117,20 @@ The latest caller message has the strongest priority for language style.
         data = response.json()
 
         reply = data["choices"][0]["message"]["content"].strip()
+
+        reply = re.sub(
+            r"<think>.*?</think>",
+            "",
+            reply,
+            flags=re.IGNORECASE | re.DOTALL
+        ).strip()
+
+        if not reply:
+            reply = (
+                "Sari, note panniten. Imran-ku convey panren."
+                if caller_name
+                else "Unga name enna nu sollunga?"
+            )
 
         save_conversation_message(
             sender,
@@ -774,9 +1373,36 @@ def receive_webhook():
                                 flush=True
                             )
 
-                reply = ask_groq(text, sender, CURRENT_STATUS)
-                print(f"AI REPLY: {reply}", flush=True)
-                send_whatsapp_text(sender, reply)
+                # Extract and persist structured caller state first.
+                # This lets the conversational AI immediately use
+                # the latest reason / callback / emergency information.
+                state = update_caller_state_from_message(
+                    text,
+                    sender
+                )
+
+                print(
+                    "CURRENT CALLER STATE:",
+                    sender,
+                    state,
+                    flush=True
+                )
+
+                reply = ask_groq(
+                    text,
+                    sender,
+                    CURRENT_STATUS
+                )
+
+                print(
+                    f"AI REPLY: {reply}",
+                    flush=True
+                )
+
+                send_whatsapp_text(
+                    sender,
+                    reply
+                )
 
     except Exception as e:
         print("WEBHOOK PROCESSING ERROR:", str(e), flush=True)
@@ -1282,3 +1908,126 @@ def call_followup():
         "eventId": event_id,
         "callTimestamp": call_timestamp
     }), 200
+
+@app.get("/api/caller-state")
+def api_caller_state():
+    if not require_app_client():
+        return jsonify({
+            "success": False,
+            "error": "Unauthorized"
+        }), 401
+
+    phone_number = str(
+        request.args.get("phone_number") or ""
+    ).strip()
+
+    if not phone_number:
+        return jsonify({
+            "success": False,
+            "error": "phone_number is required"
+        }), 400
+
+    state = get_caller_state(phone_number)
+    caller_name = get_caller_name(phone_number)
+
+    return jsonify({
+        "success": True,
+        "phone_number": phone_number,
+        "caller_name": caller_name,
+        "language_preference":
+            state.get("language_preference"),
+        "caller_reason":
+            state.get("caller_reason"),
+        "callback_requested":
+            bool(state.get("callback_requested")),
+        "callback_time":
+            state.get("callback_time"),
+        "emergency":
+            bool(state.get("emergency")),
+        "emergency_reason":
+            state.get("emergency_reason")
+    }), 200
+
+
+@app.get("/api/actionable-callers")
+def api_actionable_callers():
+    """
+    Return callers that currently need Android attention:
+    - scheduled callback
+    - emergency
+    """
+
+    if not require_app_client():
+        return jsonify({
+            "success": False,
+            "error": "Unauthorized"
+        }), 401
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return jsonify({
+            "success": False,
+            "error": "Database unavailable"
+        }), 503
+
+    try:
+        url = (
+            SUPABASE_URL.rstrip("/")
+            + "/rest/v1/caller_state"
+        )
+
+        r = requests.get(
+            url,
+            headers=supabase_headers(),
+            params={
+                "select": (
+                    "phone_number,"
+                    "language_preference,"
+                    "caller_reason,"
+                    "callback_requested,"
+                    "callback_time,"
+                    "emergency,"
+                    "emergency_reason,"
+                    "updated_at"
+                ),
+                "or": (
+                    "(callback_requested.eq.true,"
+                    "emergency.eq.true)"
+                ),
+                "order": "updated_at.desc"
+            },
+            timeout=20
+        )
+
+        r.raise_for_status()
+        rows = r.json()
+
+        result = []
+
+        for row in rows:
+            phone = row.get("phone_number")
+
+            if not phone:
+                continue
+
+            result.append({
+                **row,
+                "caller_name": get_caller_name(phone)
+            })
+
+        return jsonify({
+            "success": True,
+            "count": len(result),
+            "callers": result
+        }), 200
+
+    except Exception as e:
+        print(
+            "ACTIONABLE CALLERS API ERROR:",
+            repr(e),
+            flush=True
+        )
+
+        return jsonify({
+            "success": False,
+            "error": "Unable to load actionable callers"
+        }), 500

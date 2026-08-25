@@ -9,6 +9,7 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.DELETE
 import retrofit2.http.Path
+import retrofit2.http.Query
 import retrofit2.http.POST
 import java.util.concurrent.TimeUnit
 
@@ -74,6 +75,37 @@ data class DatabaseStatsResponse(
     val approx_data_mb: Double
 )
 
+
+data class CallerStateResponse(
+    val success: Boolean,
+    val phone_number: String,
+    val caller_name: String?,
+    val language_preference: String?,
+    val caller_reason: String?,
+    val callback_requested: Boolean,
+    val callback_time: String?,
+    val emergency: Boolean,
+    val emergency_reason: String?
+)
+
+data class ActionableCaller(
+    val phone_number: String,
+    val caller_name: String?,
+    val language_preference: String?,
+    val caller_reason: String?,
+    val callback_requested: Boolean,
+    val callback_time: String?,
+    val emergency: Boolean,
+    val emergency_reason: String?,
+    val updated_at: String?
+)
+
+data class ActionableCallersResponse(
+    val success: Boolean,
+    val count: Int,
+    val callers: List<ActionableCaller>
+)
+
 interface ApiService {
 
     @POST("call-followup")
@@ -93,6 +125,15 @@ interface ApiService {
     @GET("api/database/stats")
     suspend fun getDatabaseStats():
         retrofit2.Response<DatabaseStatsResponse>
+
+    @GET("api/caller-state")
+    suspend fun getCallerState(
+        @Query("phone_number") phoneNumber: String
+    ): retrofit2.Response<CallerStateResponse>
+
+    @GET("api/actionable-callers")
+    suspend fun getActionableCallers():
+        retrofit2.Response<ActionableCallersResponse>
 
     @DELETE("api/database/caller/{phoneNumber}")
     suspend fun deleteCaller(
