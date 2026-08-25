@@ -23,7 +23,6 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 def supabase_headers():
     return {
         "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
     }
 
