@@ -72,5 +72,21 @@
             android:name=".reminder.CancelReasonActivity"
             android:exported="false" />
 
+
+        <activity
+            android:name=".reminder.CallbackRescheduleActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+
+
+        <receiver
+            android:name=".reminder.CallbackApprovalReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".reminder.CallbackApprovalActionReceiver"
+            android:exported="false" />
+
 </application>
 </manifest>

@@ -296,6 +296,13 @@ def get_caller_state(phone_number):
         "caller_reason": None,
         "callback_requested": False,
         "callback_time": None,
+
+        "caller_requested_time": None,
+        "owner_decision": "NONE",
+        "confirmed_callback_time": None,
+        "callback_status": "NONE",
+        "callback_attempt_result": None,
+
         "emergency": False,
         "emergency_reason": None,
     }
@@ -319,6 +326,11 @@ def get_caller_state(phone_number):
                     "caller_reason,"
                     "callback_requested,"
                     "callback_time,"
+                    "caller_requested_time,"
+                    "owner_decision,"
+                    "confirmed_callback_time,"
+                    "callback_status,"
+                    "callback_attempt_result,"
                     "emergency,"
                     "emergency_reason"
                 ),
@@ -355,6 +367,13 @@ def save_caller_state(phone_number, **updates):
         "caller_reason",
         "callback_requested",
         "callback_time",
+
+        "caller_requested_time",
+        "owner_decision",
+        "confirmed_callback_time",
+        "callback_status",
+        "callback_attempt_result",
+
         "emergency",
         "emergency_reason",
     }
@@ -872,6 +891,37 @@ def update_caller_state_from_message(
     if not extracted:
         return get_caller_state(sender)
 
+    # If caller requested a callback time, convert it into
+    # an owner-approval request instead of treating it as confirmed.
+    callback_requested = extracted.get(
+        "callback_requested"
+    )
+
+    callback_time = extracted.get(
+        "callback_time"
+    )
+
+    if (
+        callback_requested is True and
+        callback_time
+    ):
+        extracted[
+            "caller_requested_time"
+        ] = callback_time
+
+        extracted[
+            "owner_decision"
+        ] = "PENDING"
+
+        extracted[
+            "callback_status"
+        ] = "WAITING_OWNER"
+
+        # Not confirmed until Imran accepts or reschedules.
+        extracted[
+            "confirmed_callback_time"
+        ] = None
+
     save_caller_state(
         sender,
         **extracted
@@ -1375,9 +1425,6 @@ def privacy():
     </html>
     """
 
-if __name__ == "__main__":
-    print("Imran AI Receptionist webhook starting...", flush=True)
-    app.run(host="0.0.0.0", port=5000)
 
 # ============================================================
 # ANDROID APP - CONVERSATION / DATABASE API
@@ -1908,6 +1955,11 @@ def api_actionable_callers():
                     "caller_reason,"
                     "callback_requested,"
                     "callback_time,"
+                    "caller_requested_time,"
+                    "owner_decision,"
+                    "confirmed_callback_time,"
+                    "callback_status,"
+                    "callback_attempt_result,"
                     "emergency,"
                     "emergency_reason,"
                     "updated_at"
@@ -1954,3 +2006,169 @@ def api_actionable_callers():
             "success": False,
             "error": "Unable to load actionable callers"
         }), 500
+
+@app.post("/api/callback-decision")
+def api_callback_decision():
+    if not require_app_client():
+        return jsonify({
+            "success": False,
+            "error": "Unauthorized"
+        }), 401
+
+    data = request.get_json(silent=True) or {}
+
+    phone_number = str(
+        data.get("phone_number") or ""
+    ).strip()
+
+    decision = str(
+        data.get("decision") or ""
+    ).strip().upper()
+
+    confirmed_time = (
+        data.get("confirmed_callback_time")
+    )
+
+    if not phone_number:
+        return jsonify({
+            "success": False,
+            "error": "phone_number is required"
+        }), 400
+
+    if decision not in (
+        "ACCEPT",
+        "REJECT",
+        "RESCHEDULE"
+    ):
+        return jsonify({
+            "success": False,
+            "error": "Invalid decision"
+        }), 400
+
+    state = get_caller_state(phone_number)
+
+    caller_requested_time = state.get(
+        "caller_requested_time"
+    )
+
+    if decision == "ACCEPT":
+        final_time = (
+            confirmed_time
+            or caller_requested_time
+        )
+
+        if not final_time:
+            return jsonify({
+                "success": False,
+                "error": "No callback time available"
+            }), 400
+
+        saved = save_caller_state(
+            phone_number,
+            owner_decision="ACCEPTED",
+            confirmed_callback_time=final_time,
+            callback_status="CONFIRMED"
+        )
+
+        if not saved:
+            return jsonify({
+                "success": False,
+                "error": "Unable to save decision"
+            }), 500
+
+        message = (
+            "Sari, unga requested callback time Imran confirm pannirukaaru. "
+            "Andha time-la unga kitta call panna try pannuvaaru."
+        )
+
+        send_whatsapp_text(
+            phone_number,
+            message
+        )
+
+        return jsonify({
+            "success": True,
+            "decision": "ACCEPTED",
+            "confirmed_callback_time": final_time
+        }), 200
+
+    if decision == "REJECT":
+        saved = save_caller_state(
+            phone_number,
+            owner_decision="REJECTED",
+            confirmed_callback_time=None,
+            callback_status="CANCELLED"
+        )
+
+        if not saved:
+            return jsonify({
+                "success": False,
+                "error": "Unable to save decision"
+            }), 500
+
+        message = (
+            "Sorry, Imran-ku ippothaikku call panna suitable time illa. "
+            "Unga message avar kitta note pannirukku."
+        )
+
+        send_whatsapp_text(
+            phone_number,
+            message
+        )
+
+        return jsonify({
+            "success": True,
+            "decision": "REJECTED"
+        }), 200
+
+    # RESCHEDULE
+    if not confirmed_time:
+        return jsonify({
+            "success": False,
+            "error": "confirmed_callback_time is required for reschedule"
+        }), 400
+
+    saved = save_caller_state(
+        phone_number,
+        owner_decision="RESCHEDULED",
+        confirmed_callback_time=confirmed_time,
+        callback_status="CONFIRMED"
+    )
+
+    if not saved:
+        return jsonify({
+            "success": False,
+            "error": "Unable to save decision"
+        }), 500
+
+    message = (
+        "Imran unga callback-ku vera time set pannirukaaru. "
+        "Andha confirmed time-la unga kitta call panna try pannuvaaru."
+    )
+
+    send_whatsapp_text(
+        phone_number,
+        message
+    )
+
+    return jsonify({
+        "success": True,
+        "decision": "RESCHEDULED",
+        "confirmed_callback_time": confirmed_time
+    }), 200
+
+# ============================================================
+# LOCAL DEVELOPMENT STARTUP
+# Keep this at the END of the file so every Flask route
+# is registered before app.run() starts.
+# ============================================================
+
+if __name__ == "__main__":
+    print(
+        "Imran AI Receptionist webhook starting...",
+        flush=True
+    )
+    app.run(
+        host="0.0.0.0",
+        port=5000
+    )

@@ -95,6 +95,13 @@ data class ActionableCaller(
     val caller_reason: String?,
     val callback_requested: Boolean,
     val callback_time: String?,
+
+    val caller_requested_time: String?,
+    val owner_decision: String?,
+    val confirmed_callback_time: String?,
+    val callback_status: String?,
+    val callback_attempt_result: String?,
+
     val emergency: Boolean,
     val emergency_reason: String?,
     val updated_at: String?
@@ -104,6 +111,20 @@ data class ActionableCallersResponse(
     val success: Boolean,
     val count: Int,
     val callers: List<ActionableCaller>
+)
+
+
+data class CallbackDecisionRequest(
+    val phone_number: String,
+    val decision: String,
+    val confirmed_callback_time: String? = null
+)
+
+data class CallbackDecisionResponse(
+    val success: Boolean,
+    val decision: String? = null,
+    val confirmed_callback_time: String? = null,
+    val error: String? = null
 )
 
 interface ApiService {
@@ -134,6 +155,11 @@ interface ApiService {
     @GET("api/actionable-callers")
     suspend fun getActionableCallers():
         retrofit2.Response<ActionableCallersResponse>
+
+    @POST("api/callback-decision")
+    suspend fun postCallbackDecision(
+        @Body request: CallbackDecisionRequest
+    ): retrofit2.Response<CallbackDecisionResponse>
 
     @DELETE("api/database/caller/{phoneNumber}")
     suspend fun deleteCaller(

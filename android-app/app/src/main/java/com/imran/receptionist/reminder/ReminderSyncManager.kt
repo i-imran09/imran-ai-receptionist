@@ -100,33 +100,114 @@ object ReminderSyncManager {
                 }
 
                 // --------------------------------------
-                // CALLBACK -> local scheduled reminder
+                // CALLBACK APPROVAL STATE MACHINE
                 // --------------------------------------
 
-                if (
-                    caller.callback_requested &&
-                    !caller.callback_time.isNullOrBlank()
-                ) {
+                if (caller.callback_requested) {
 
-                    val scheduled =
-                        ReminderScheduler
-                            .scheduleCallback(
-                                context = context,
-                                phoneNumber = phone,
-                                callerName = name,
-                                callerReason = reason,
-                                callbackTimeIso =
-                                    caller.callback_time
+                    when (
+                        caller.callback_status
+                            ?.uppercase()
+                    ) {
+
+                        "WAITING_OWNER" -> {
+
+                            val requestedTime =
+                                caller.caller_requested_time
+                                    ?: caller.callback_time
+
+                            if (!requestedTime.isNullOrBlank()) {
+
+                                val approvalIntent =
+                                    Intent(
+                                        context,
+                                        CallbackApprovalReceiver::class.java
+                                    ).apply {
+
+                                        action =
+                                            "com.imran.receptionist.CALLBACK_APPROVAL"
+
+                                        putExtra(
+                                            ReminderScheduler.EXTRA_PHONE,
+                                            phone
+                                        )
+
+                                        putExtra(
+                                            ReminderScheduler.EXTRA_NAME,
+                                            name
+                                        )
+
+                                        putExtra(
+                                            ReminderScheduler.EXTRA_REASON,
+                                            reason
+                                        )
+
+                                        putExtra(
+                                            CallbackApprovalReceiver.EXTRA_REQUESTED_TIME,
+                                            requestedTime
+                                        )
+                                    }
+
+                                context.sendBroadcast(
+                                    approvalIntent
+                                )
+
+                                DiagnosticLogger.log(
+                                    context,
+                                    "CALLBACK_APPROVAL_SYNC",
+                                    "Waiting for owner decision"
+                                )
+                            }
+                        }
+
+                        "CONFIRMED" -> {
+
+                            val confirmedTime =
+                                caller.confirmed_callback_time
+
+                            if (!confirmedTime.isNullOrBlank()) {
+
+                                val scheduled =
+                                    ReminderScheduler
+                                        .scheduleCallback(
+                                            context = context,
+                                            phoneNumber = phone,
+                                            callerName = name,
+                                            callerReason = reason,
+                                            callbackTimeIso =
+                                                confirmedTime
+                                        )
+
+                                DiagnosticLogger.log(
+                                    context,
+                                    "REMINDER_SYNC",
+                                    if (scheduled) {
+                                        "Confirmed callback reminder scheduled"
+                                    } else {
+                                        "Confirmed callback reminder skipped"
+                                    }
+                                )
+                            }
+                        }
+
+                        "CANCELLED" -> {
+
+                            DiagnosticLogger.log(
+                                context,
+                                "CALLBACK_CANCELLED_SYNC",
+                                "Cancelled callback ignored"
                             )
+                        }
 
-                    DiagnosticLogger.log(
-                        context,
-                        "REMINDER_SYNC",
-                        if (scheduled)
-                            "Callback reminder scheduled"
-                        else
-                            "Callback reminder skipped"
-                    )
+                        else -> {
+
+                            DiagnosticLogger.log(
+                                context,
+                                "CALLBACK_STATE_SYNC",
+                                "Callback has no actionable approval state"
+                            )
+                        }
+                    }
                 }
             }
 
