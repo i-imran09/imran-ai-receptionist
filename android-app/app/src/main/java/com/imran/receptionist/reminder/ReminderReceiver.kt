@@ -202,7 +202,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 channelId
             )
                 .setSmallIcon(
-                    R.mipmap.ic_launcher
+                    android.R.drawable.ic_dialog_info
                 )
                 .setContentTitle(title)
                 .setContentText(body)
