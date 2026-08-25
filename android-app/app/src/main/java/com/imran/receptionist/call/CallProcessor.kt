@@ -5,8 +5,6 @@ import android.util.Log
 import com.imran.receptionist.database.CallDatabase
 import com.imran.receptionist.database.CallHistoryEntity
 import com.imran.receptionist.diagnostics.DiagnosticLogger
-import com.imran.receptionist.network.ApiService
-import com.imran.receptionist.network.CallFollowupRequest
 import com.imran.receptionist.status.StatusRepository
 import java.util.UUID
 
@@ -93,70 +91,55 @@ object CallProcessor {
             return
         }
 
-        try {
-            DiagnosticLogger.log(
-                context,
-                "BACKEND",
-                "Sending follow-up request to cloud backend"
+        DiagnosticLogger.log(
+            context,
+            "SMS",
+            "Preparing SIM1 SMS follow-up"
+        )
+
+        val smsQueued =
+            SmsFollowupSender.send(
+                context = context,
+                callerNumber = rawNumber,
+                contactDisplayName =
+                    contactDisplayName
             )
 
-            val response =
-                ApiService.create().reportCall(
-                    CallFollowupRequest(
-                        callerNumber = number,
-                        currentStatus = status,
-                        eventId = eventId,
-                        callTimestamp =
-                            callTimestamp,
-                        contactDisplayName =
-                            contactDisplayName,
-                        callResult =
-                            callResult,
-                        simSlot =
-                            simSlot
-                    )
-                )
+        if (smsQueued) {
+
+            /*
+             * Reuse the existing templateSent flag as the
+             * generic "follow-up sent" marker for now.
+             * This preserves the existing 2-minute
+             * duplicate-suppression logic without a DB migration.
+             */
+            dao.markTemplateSent(eventId)
 
             DiagnosticLogger.log(
                 context,
-                "BACKEND",
-                "HTTP ${response.code()}"
+                "SMS",
+                "SMS follow-up queued successfully"
             )
 
-            if (response.isSuccessful) {
-                dao.markTemplateSent(eventId)
+            Log.i(
+                "ImranAI",
+                "SMS follow-up queued successfully"
+            )
 
-                DiagnosticLogger.log(
-                    context,
-                    "TEMPLATE",
-                    "WhatsApp follow-up accepted"
-                )
+        } else {
 
-                Log.i(
-                    "ImranAI",
-                    "WhatsApp follow-up accepted"
-                )
-            } else {
-                Log.e(
-                    "ImranAI",
-                    "Backend HTTP ${response.code()}"
-                )
-            }
-
-        } catch (e: Exception) {
             DiagnosticLogger.log(
                 context,
-                "BACKEND_ERROR",
-                e.javaClass.simpleName +
-                    ": " +
-                    (e.message ?: "Unknown error")
+                "SMS_ERROR",
+                "SMS follow-up could not be queued"
             )
 
             Log.e(
                 "ImranAI",
-                "Backend call failed",
-                e
+                "SMS follow-up failed"
             )
+        }
+
         }
     }
 }

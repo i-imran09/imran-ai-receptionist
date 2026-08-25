@@ -132,7 +132,8 @@ class MainActivity : AppCompatActivity() {
         val permissions = arrayOf(
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_PHONE_STATE
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.SEND_SMS
         )
 
         val missing =
@@ -182,6 +183,9 @@ class MainActivity : AppCompatActivity() {
             ) == PackageManager.PERMISSION_GRANTED &&
             checkSelfPermission(
                 Manifest.permission.READ_PHONE_STATE
+            ) == PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(
+                Manifest.permission.SEND_SMS
             ) == PackageManager.PERMISSION_GRANTED
 
         val rm =
