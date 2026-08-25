@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import os
 import re
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -1376,17 +1377,29 @@ def receive_webhook():
                 # Extract and persist structured caller state first.
                 # This lets the conversational AI immediately use
                 # the latest reason / callback / emergency information.
-                state = update_caller_state_from_message(
-                    text,
-                    sender
-                )
+                # Structured caller state is an enhancement.
+                # It must NEVER block the core WhatsApp AI conversation.
+                try:
+                    state = update_caller_state_from_message(
+                        text,
+                        sender
+                    )
 
-                print(
-                    "CURRENT CALLER STATE:",
-                    sender,
-                    state,
-                    flush=True
-                )
+                    print(
+                        "CURRENT CALLER STATE:",
+                        sender,
+                        state,
+                        flush=True
+                    )
+
+                except Exception as state_error:
+                    state = {}
+
+                    print(
+                        "CALLER STATE NON-FATAL ERROR:",
+                        repr(state_error),
+                        flush=True
+                    )
 
                 reply = ask_groq(
                     text,
@@ -1606,7 +1619,6 @@ def api_database_stats():
 
         # Approximate JSON payload size used by app records.
         # This is NOT the complete PostgreSQL project size/quota.
-        import json
 
         profile_bytes = len(
             json.dumps(profiles, ensure_ascii=False).encode("utf-8")
