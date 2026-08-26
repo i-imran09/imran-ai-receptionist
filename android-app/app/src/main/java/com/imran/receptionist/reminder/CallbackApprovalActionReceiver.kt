@@ -52,7 +52,10 @@ class CallbackApprovalActionReceiver : BroadcastReceiver() {
             ACTION_REJECT -> {
                 handleReject(
                     context = context,
-                    phone = phone
+                    phone = phone,
+                    name = name,
+                    reason = reason,
+                    requestedTime = requestedTime
                 )
             }
 
@@ -180,8 +183,17 @@ class CallbackApprovalActionReceiver : BroadcastReceiver() {
 
     private fun handleReject(
         context: Context,
-        phone: String
+        phone: String,
+        name: String?,
+        reason: String?,
+        requestedTime: String?
     ) {
+        // Give immediate visual feedback so repeated taps cannot occur.
+        dismissApproval(
+            context,
+            phone
+        )
+
         val pendingResult = goAsync()
 
         CoroutineScope(Dispatchers.IO).launch {
@@ -201,17 +213,20 @@ class CallbackApprovalActionReceiver : BroadcastReceiver() {
                     response.isSuccessful &&
                     body?.success == true
                 ) {
-                    dismissApproval(
-                        context,
-                        phone
-                    )
-
                     DiagnosticLogger.log(
                         context,
                         "CALLBACK_REJECTED",
                         "Callback request rejected"
                     )
                 } else {
+                    restoreApproval(
+                        context = context,
+                        phone = phone,
+                        name = name,
+                        reason = reason,
+                        requestedTime = requestedTime
+                    )
+
                     DiagnosticLogger.log(
                         context,
                         "CALLBACK_APPROVAL_ERROR",
@@ -220,6 +235,14 @@ class CallbackApprovalActionReceiver : BroadcastReceiver() {
                 }
 
             } catch (e: Exception) {
+
+                restoreApproval(
+                    context = context,
+                    phone = phone,
+                    name = name,
+                    reason = reason,
+                    requestedTime = requestedTime
+                )
                 DiagnosticLogger.log(
                     context,
                     "CALLBACK_APPROVAL_ERROR",
@@ -231,6 +254,49 @@ class CallbackApprovalActionReceiver : BroadcastReceiver() {
             }
         }
     }
+
+    private fun restoreApproval(
+        context: Context,
+        phone: String,
+        name: String?,
+        reason: String?,
+        requestedTime: String?
+    ) {
+        val approvalIntent =
+            Intent(
+                context,
+                CallbackApprovalReceiver::class.java
+            ).apply {
+
+                action =
+                    "com.imran.receptionist.CALLBACK_APPROVAL"
+
+                putExtra(
+                    ReminderScheduler.EXTRA_PHONE,
+                    phone
+                )
+
+                putExtra(
+                    ReminderScheduler.EXTRA_NAME,
+                    name
+                )
+
+                putExtra(
+                    ReminderScheduler.EXTRA_REASON,
+                    reason
+                )
+
+                putExtra(
+                    CallbackApprovalReceiver.EXTRA_REQUESTED_TIME,
+                    requestedTime
+                )
+            }
+
+        context.sendBroadcast(
+            approvalIntent
+        )
+    }
+
 
     private fun dismissApproval(
         context: Context,

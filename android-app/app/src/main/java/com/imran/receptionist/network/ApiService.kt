@@ -127,6 +127,17 @@ data class CallbackDecisionResponse(
     val error: String? = null
 )
 
+
+data class DeviceTokenRequest(
+    val token: String,
+    val platform: String = "android"
+)
+
+data class DeviceTokenResponse(
+    val success: Boolean,
+    val error: String? = null
+)
+
 interface ApiService {
 
     @POST("call-followup")
@@ -160,6 +171,11 @@ interface ApiService {
     suspend fun postCallbackDecision(
         @Body request: CallbackDecisionRequest
     ): retrofit2.Response<CallbackDecisionResponse>
+
+    @POST("api/device-token")
+    suspend fun registerDeviceToken(
+        @Body request: DeviceTokenRequest
+    ): retrofit2.Response<DeviceTokenResponse>
 
     @DELETE("api/database/caller/{phoneNumber}")
     suspend fun deleteCaller(

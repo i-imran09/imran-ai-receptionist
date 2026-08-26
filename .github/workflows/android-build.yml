@@ -1,4 +1,5 @@
 name: Build Android APK
+
 on:
   workflow_dispatch:
   push:
@@ -10,25 +11,72 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: android-app
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
       - uses: android-actions/setup-android@v3
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+
       - name: Create private Gradle properties
         run: |
           printf 'BACKEND_URL=%s\n' "${{ secrets.BACKEND_URL }}" >> gradle.properties
           printf 'APP_CLIENT_TOKEN=%s\n' "${{ secrets.APP_CLIENT_TOKEN }}" >> gradle.properties
+
+      - name: Create Firebase Android config
+        env:
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON_B64" ]; then
+            echo "GOOGLE_SERVICES_JSON_B64 secret is missing"
+            exit 1
+          fi
+
+          printf '%s' "$GOOGLE_SERVICES_JSON_B64" \
+            | base64 --decode \
+            > app/google-services.json
+
+          test -s app/google-services.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("app/google-services.json")
+          data = json.loads(path.read_text())
+
+          expected = "com.imran.receptionist"
+
+          packages = [
+              client.get("client_info", {})
+              .get("android_client_info", {})
+              .get("package_name")
+              for client in data.get("client", [])
+          ]
+
+          if expected not in packages:
+              raise SystemExit(
+                  "Firebase package name mismatch"
+              )
+
+          print("Firebase Android config validated")
+          PY
+
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
+
       - uses: actions/upload-artifact@v4
         with:
           name: Imran-AI-Receptionist-debug

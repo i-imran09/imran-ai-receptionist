@@ -2,7 +2,11 @@ from flask import Flask, request, jsonify
 import os
 import re
 import json
-from datetime import datetime
+import base64
+from datetime import datetime, timezone
+
+import firebase_admin
+from firebase_admin import credentials, messaging
 from zoneinfo import ZoneInfo
 
 app = Flask(__name__)
@@ -19,6 +23,76 @@ PHONE_NUMBER_ID = "1193220090549290"
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+FIREBASE_SERVICE_ACCOUNT_B64 = os.getenv(
+    "FIREBASE_SERVICE_ACCOUNT_B64",
+    ""
+)
+
+
+def initialize_firebase_admin():
+    """
+    Initialize Firebase Admin from the Render Base64 environment secret.
+
+    The service-account JSON is decoded only in memory.
+    No private credential file is written to disk.
+    """
+
+    encoded = (
+        FIREBASE_SERVICE_ACCOUNT_B64
+        or ""
+    ).strip()
+
+    if not encoded:
+        print(
+            "FIREBASE ADMIN: service account env missing",
+            flush=True
+        )
+        return False
+
+    try:
+        decoded = base64.b64decode(
+            encoded,
+            validate=True
+        )
+
+        service_account = json.loads(
+            decoded.decode("utf-8")
+        )
+
+        if service_account.get("type") != "service_account":
+            raise ValueError(
+                "Invalid Firebase service account type"
+            )
+
+        if not firebase_admin._apps:
+            credential = credentials.Certificate(
+                service_account
+            )
+
+            firebase_admin.initialize_app(
+                credential
+            )
+
+        print(
+            "FIREBASE ADMIN INITIALIZED",
+            flush=True
+        )
+
+        return True
+
+    except Exception as exc:
+        print(
+            "FIREBASE ADMIN INIT ERROR:",
+            type(exc).__name__,
+            str(exc)[:200],
+            flush=True
+        )
+
+        return False
+
+
+FIREBASE_ADMIN_READY = initialize_firebase_admin()
 
 
 def run_supabase_startup_diagnostic():
@@ -836,6 +910,181 @@ Do not include explanations.
         return {}
 
 
+
+def get_active_device_tokens():
+    """Return active Android FCM tokens from Supabase."""
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return []
+
+    try:
+        url = (
+            SUPABASE_URL.rstrip("/")
+            + "/rest/v1/device_tokens"
+        )
+
+        response = requests.get(
+            url,
+            headers=supabase_headers(),
+            params={
+                "active": "eq.true",
+                "platform": "eq.android",
+                "select": "token",
+                "order": "updated_at.desc"
+            },
+            timeout=20
+        )
+
+        response.raise_for_status()
+
+        tokens = []
+
+        for row in response.json():
+            token = str(
+                row.get("token") or ""
+            ).strip()
+
+            if token and token not in tokens:
+                tokens.append(token)
+
+        return tokens
+
+    except Exception as exc:
+        print(
+            "FCM TOKEN LOAD ERROR:",
+            repr(exc),
+            flush=True
+        )
+
+        return []
+
+
+def deactivate_device_token(token):
+    """Mark a bad FCM token inactive."""
+
+    if (
+        not token
+        or not SUPABASE_URL
+        or not SUPABASE_KEY
+    ):
+        return
+
+    try:
+        url = (
+            SUPABASE_URL.rstrip("/")
+            + "/rest/v1/device_tokens"
+        )
+
+        requests.patch(
+            url,
+            headers=supabase_headers(),
+            params={
+                "token": f"eq.{token}"
+            },
+            json={
+                "active": False,
+                "updated_at": datetime.now(
+                    timezone.utc
+                ).isoformat()
+            },
+            timeout=20
+        )
+
+    except Exception as exc:
+        print(
+            "FCM TOKEN DEACTIVATE ERROR:",
+            repr(exc),
+            flush=True
+        )
+
+
+def send_callback_approval_push(
+    phone_number,
+    caller_name,
+    caller_reason,
+    caller_requested_time
+):
+    """
+    Send a data-only FCM message to registered Android devices.
+    """
+
+    if not FIREBASE_ADMIN_READY:
+        print(
+            "FCM PUSH SKIPPED: Firebase Admin not ready",
+            flush=True
+        )
+        return False
+
+    tokens = get_active_device_tokens()
+
+    if not tokens:
+        print(
+            "FCM PUSH SKIPPED: no active device tokens",
+            flush=True
+        )
+        return False
+
+    data = {
+        "type": "CALLBACK_APPROVAL",
+        "phone_number": str(
+            phone_number or ""
+        ),
+        "caller_name": str(
+            caller_name or ""
+        ),
+        "caller_reason": str(
+            caller_reason or ""
+        ),
+        "caller_requested_time": str(
+            caller_requested_time or ""
+        ),
+    }
+
+    sent = 0
+
+    for token in tokens:
+        try:
+            message = messaging.Message(
+                token=token,
+                data=data,
+                android=messaging.AndroidConfig(
+                    priority="high"
+                )
+            )
+
+            message_id = messaging.send(
+                message
+            )
+
+            print(
+                "FCM CALLBACK PUSH SENT:",
+                message_id,
+                flush=True
+            )
+
+            sent += 1
+
+        except Exception as exc:
+            error_name = type(exc).__name__
+
+            print(
+                "FCM CALLBACK PUSH ERROR:",
+                error_name,
+                str(exc)[:200],
+                flush=True
+            )
+
+            if error_name in (
+                "UnregisteredError",
+                "SenderIdMismatchError"
+            ):
+                deactivate_device_token(
+                    token
+                )
+
+    return sent > 0
+
+
 def update_caller_state_from_message(
     user_message,
     sender="unknown"
@@ -883,13 +1132,15 @@ def update_caller_state_from_message(
         )
         return get_caller_state(sender)
 
+    previous_state = get_caller_state(sender)
+
     extracted = analyze_caller_message(
         user_message,
         sender
     )
 
     if not extracted:
-        return get_caller_state(sender)
+        return previous_state
 
     # If caller requested a callback time, convert it into
     # an owner-approval request instead of treating it as confirmed.
@@ -927,7 +1178,50 @@ def update_caller_state_from_message(
         **extracted
     )
 
-    return get_caller_state(sender)
+    updated_state = get_caller_state(sender)
+
+    new_callback_request = (
+        callback_requested is True
+        and
+        bool(callback_time)
+        and
+        (
+            previous_state.get("callback_status")
+            != "WAITING_OWNER"
+            or
+            previous_state.get("caller_requested_time")
+            != updated_state.get("caller_requested_time")
+        )
+    )
+
+    if (
+        new_callback_request
+        and
+        updated_state.get("callback_status")
+        == "WAITING_OWNER"
+        and
+        updated_state.get("caller_requested_time")
+    ):
+        try:
+            send_callback_approval_push(
+                phone_number = sender,
+                caller_name = get_caller_name(sender),
+                caller_reason =
+                    updated_state.get("caller_reason"),
+                caller_requested_time =
+                    updated_state.get(
+                        "caller_requested_time"
+                    )
+            )
+
+        except Exception as push_error:
+            print(
+                "FCM CALLBACK PUSH NON-FATAL ERROR:",
+                repr(push_error),
+                flush=True
+            )
+
+    return updated_state
 
 
 
@@ -2007,6 +2301,121 @@ def api_actionable_callers():
             "error": "Unable to load actionable callers"
         }), 500
 
+
+@app.post("/api/device-token")
+def api_device_token():
+    """
+    Register or refresh an Android FCM device token.
+
+    Protected by APP_CLIENT_TOKEN.
+    The token is stored in Supabase device_tokens.
+    """
+
+    if not require_app_client():
+        return jsonify({
+            "success": False,
+            "error": "Unauthorized"
+        }), 401
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return jsonify({
+            "success": False,
+            "error": "Database unavailable"
+        }), 503
+
+    data = request.get_json(silent=True) or {}
+
+    token = str(
+        data.get("token") or ""
+    ).strip()
+
+    platform = str(
+        data.get("platform") or "android"
+    ).strip().lower()
+
+    if not token:
+        return jsonify({
+            "success": False,
+            "error": "token is required"
+        }), 400
+
+    if platform != "android":
+        return jsonify({
+            "success": False,
+            "error": "Unsupported platform"
+        }), 400
+
+    try:
+        url = (
+            SUPABASE_URL.rstrip("/")
+            + "/rest/v1/device_tokens"
+        )
+
+        headers = supabase_headers().copy()
+
+        # Supabase/PostgREST upsert by unique token.
+        headers["Prefer"] = (
+            "resolution=merge-duplicates,"
+            "return=representation"
+        )
+
+        payload = {
+            "token": token,
+            "platform": platform,
+            "active": True,
+            "updated_at": datetime.now(
+                timezone.utc
+            ).isoformat()
+        }
+
+        response = requests.post(
+            url,
+            headers=headers,
+            params={
+                "on_conflict": "token"
+            },
+            json=payload,
+            timeout=20
+        )
+
+        if response.status_code not in (
+            200,
+            201
+        ):
+            print(
+                "FCM DEVICE TOKEN SAVE ERROR:",
+                response.status_code,
+                response.text,
+                flush=True
+            )
+
+            return jsonify({
+                "success": False,
+                "error": "Unable to register device token"
+            }), 502
+
+        print(
+            "FCM DEVICE TOKEN REGISTERED",
+            flush=True
+        )
+
+        return jsonify({
+            "success": True
+        }), 200
+
+    except Exception as e:
+        print(
+            "FCM DEVICE TOKEN ERROR:",
+            repr(e),
+            flush=True
+        )
+
+        return jsonify({
+            "success": False,
+            "error": "Device token registration failed"
+        }), 500
+
+
 @app.post("/api/callback-decision")
 def api_callback_decision():
     if not require_app_client():
@@ -2093,6 +2502,27 @@ def api_callback_decision():
         }), 200
 
     if decision == "REJECT":
+
+        # Idempotency protection:
+        # repeated Android taps / retries must never send
+        # the rejection WhatsApp message more than once.
+        if (
+            state.get("owner_decision") == "REJECTED"
+            and
+            state.get("callback_status") == "CANCELLED"
+        ):
+            print(
+                "CALLBACK REJECT ALREADY PROCESSED:",
+                phone_number,
+                flush=True
+            )
+
+            return jsonify({
+                "success": True,
+                "decision": "REJECTED",
+                "already_processed": True
+            }), 200
+
         saved = save_caller_state(
             phone_number,
             owner_decision="REJECTED",

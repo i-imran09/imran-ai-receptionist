@@ -18,3 +18,6 @@ __pycache__/
 webhook_before_*.py
 webhook_working_backup.py
 webhook_render_ready.py
+
+# Firebase Android configuration
+android-app/app/google-services.json

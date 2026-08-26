@@ -16,6 +16,7 @@ import androidx.lifecycle.lifecycleScope
 import com.imran.receptionist.databinding.ActivityMainBinding
 import com.imran.receptionist.status.StatusRepository
 import com.imran.receptionist.reminder.ReminderSyncManager
+import com.imran.receptionist.push.FcmTokenManager
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -37,6 +38,10 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         statusRepository = StatusRepository(applicationContext)
+
+        FcmTokenManager.refreshAndRegister(
+            applicationContext
+        )
 
         val statuses = listOf(
             "Work",
